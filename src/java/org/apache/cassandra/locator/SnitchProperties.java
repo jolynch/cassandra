@@ -30,6 +30,9 @@ public class SnitchProperties
     private static final Logger logger = LoggerFactory.getLogger(SnitchProperties.class);
     public static final String RACKDC_PROPERTY_FILENAME = "cassandra-rackdc.properties";
 
+    public static final String EC2_NAMING_LEGACY = "legacy";
+    public static final String EC2_NAMING_STANDARD = "standard";
+
     private Properties properties;
 
     public SnitchProperties()

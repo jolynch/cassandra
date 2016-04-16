@@ -549,6 +549,31 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         }
     }
 
+    private static void checkDatacenterAndRack()
+    {
+        Set<String> datacenters = new HashSet<>();
+        Set<String> racks = new HashSet<>();
+        for (Entry<InetAddressAndPort, EndpointState> entry : Gossiper.instance.getEndpointStates())
+        {
+            EndpointState state = entry.getValue();
+            VersionedValue val = state.getApplicationState(ApplicationState.DC);
+            if (val != null)
+                datacenters.add(val.value);
+            val = state.getApplicationState(ApplicationState.RACK);
+            if (val != null)
+                racks.add(val.value);
+        }
+
+        IEndpointSnitch snitch = DatabaseDescriptor.getEndpointSnitch();
+        if (snitch.hasConflictingDatacenterOrRack(datacenters, racks))
+        {
+            String msg = String.format("snitch's datacenter (%s) or rack (%s) for this node conflicts with other nodes in the cluster",
+                                       snitch.getDatacenter(FBUtilities.getBroadcastAddressAndPort()),
+                                       snitch.getRack(FBUtilities.getBroadcastAddressAndPort()));
+            throw new IllegalStateException(msg);
+        }
+    }
+
     private boolean allowSimultaneousMoves()
     {
         return allowSimultaneousMoves && DatabaseDescriptor.getNumTokens() == 1;
@@ -795,6 +820,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             loadRingState();
 
             logger.info("Starting up server gossip");
+            checkDatacenterAndRack();
             Gossiper.instance.register(this);
             Gossiper.instance.start(SystemKeyspace.incrementAndGetGeneration(), appStates); // needed for node-ring gathering.
             gossipActive = true;

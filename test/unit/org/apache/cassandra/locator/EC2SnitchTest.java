@@ -20,11 +20,14 @@ package org.apache.cassandra.locator;
 
 
 import java.io.IOException;
-import java.net.UnknownHostException;
+import java.util.Collections;
 import java.util.EnumMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 import org.junit.AfterClass;
+import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -43,6 +46,14 @@ public class EC2SnitchTest
 {
     private static String az;
 
+    private SnitchProperties legacySnitchProps = new SnitchProperties()
+    {
+        public String get(String propertyName, String defaultValue)
+        {
+            return propertyName.equals("ec2_naming_scheme") ? EC2_NAMING_LEGACY : super.get(propertyName, defaultValue);
+        }
+    };
+
     @BeforeClass
     public static void setup() throws Exception
     {
@@ -60,6 +71,11 @@ public class EC2SnitchTest
             super();
         }
 
+        public TestEC2Snitch(SnitchProperties props) throws IOException, ConfigurationException
+        {
+            super(props);
+        }
+
         @Override
         String awsApiCall(String url) throws IOException, ConfigurationException
         {
@@ -68,10 +84,10 @@ public class EC2SnitchTest
     }
 
     @Test
-    public void testRac() throws IOException, ConfigurationException
+    public void testLegacyRac() throws IOException, ConfigurationException
     {
         az = "us-east-1d";
-        Ec2Snitch snitch = new TestEC2Snitch();
+        Ec2Snitch snitch = new TestEC2Snitch(legacySnitchProps);
         InetAddressAndPort local = InetAddressAndPort.getByName("127.0.0.1");
         InetAddressAndPort nonlocal = InetAddressAndPort.getByName("127.0.0.7");
 
@@ -87,15 +103,84 @@ public class EC2SnitchTest
         assertEquals("us-east", snitch.getDatacenter(local));
         assertEquals("1d", snitch.getRack(local));
     }
-    
+
     @Test
-    public void testNewRegions() throws IOException, ConfigurationException
+    public void testLegacyNewRegions() throws IOException, ConfigurationException
     {
         az = "us-east-2d";
-        Ec2Snitch snitch = new TestEC2Snitch();
+        Ec2Snitch snitch = new TestEC2Snitch(legacySnitchProps);
         InetAddressAndPort local = InetAddressAndPort.getByName("127.0.0.1");
         assertEquals("us-east-2", snitch.getDatacenter(local));
         assertEquals("2d", snitch.getRack(local));
+    }
+
+    @Test
+    public void testFullNamingScheme() throws IOException, ConfigurationException
+    {
+        InetAddressAndPort local = InetAddressAndPort.getByName("127.0.0.1");
+        az = "us-east-2d";
+        Ec2Snitch snitch = new TestEC2Snitch();
+
+        assertEquals("us-east-2", snitch.getDatacenter(local));
+        assertEquals("us-east-2d", snitch.getRack(local));
+
+        az = "us-west-1a";
+        snitch = new TestEC2Snitch();
+
+        assertEquals("us-west-1", snitch.getDatacenter(local));
+        assertEquals("us-west-1a", snitch.getRack(local));
+    }
+
+    @Test
+    public void conflictingDatacenter_RequiresLegacy_CorrectAmazonName()
+    {
+        Set<String> datacenters = new HashSet<>();
+        datacenters.add("us-east-1");
+        Assert.assertTrue(Ec2Snitch.hasConflictingDatacenterOrRack(datacenters, Collections.emptySet(), true));
+    }
+
+    @Test
+    public void conflictingDatacenter_RequiresLegacy_LegacyName()
+    {
+        Set<String> datacenters = new HashSet<>();
+        datacenters.add("us-east");
+        Assert.assertFalse(Ec2Snitch.hasConflictingDatacenterOrRack(datacenters, Collections.emptySet(), true));
+    }
+
+    @Test
+    public void conflictingRack_RequiresLegacy_HappyPath()
+    {
+        Set<String> datacenters = new HashSet<>();
+        datacenters.add("us-east");
+        Set<String> racks = new HashSet<>();
+        racks.add("1a");
+        Assert.assertFalse(Ec2Snitch.hasConflictingDatacenterOrRack(datacenters, racks, true));
+    }
+
+    @Test
+    public void conflictingRack_RequiresAmazonName_CorrectAmazonName()
+    {
+        Set<String> racks = new HashSet<>();
+        racks.add("us-east-1a");
+        Assert.assertFalse(Ec2Snitch.hasConflictingDatacenterOrRack(Collections.emptySet(), racks, false));
+    }
+
+    @Test
+    public void conflictingRack_RequiresAmazonName_LegacyName()
+    {
+        Set<String> racks = new HashSet<>();
+        racks.add("1a");
+        Assert.assertTrue(Ec2Snitch.hasConflictingDatacenterOrRack(Collections.emptySet(), racks, false));
+    }
+
+    @Test
+    public void conflictingRack_RequiresAmazonName_HappyPath()
+    {
+        Set<String> datacenters = new HashSet<>();
+        datacenters.add("us-east-1");
+        Set<String> racks = new HashSet<>();
+        racks.add("us-east-1a");
+        Assert.assertFalse(Ec2Snitch.hasConflictingDatacenterOrRack(datacenters, racks, false));
     }
 
     @AfterClass

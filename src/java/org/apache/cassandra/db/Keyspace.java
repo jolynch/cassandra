@@ -35,6 +35,7 @@ import org.apache.cassandra.config.*;
 import org.apache.cassandra.db.commitlog.CommitLog;
 import org.apache.cassandra.db.commitlog.CommitLogPosition;
 import org.apache.cassandra.db.compaction.CompactionManager;
+import org.apache.cassandra.db.continuousrepair.MutationTracker;
 import org.apache.cassandra.db.lifecycle.SSTableSet;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.db.view.ViewManager;
@@ -50,6 +51,7 @@ import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.*;
 import org.apache.cassandra.utils.concurrent.OpOrder;
+
 
 /**
  * It represents a Keyspace.
@@ -616,6 +618,11 @@ public class Keyspace
                                                      ? cfs.indexManager.newUpdateTransaction(upd, opGroup, nowInSec)
                                                      : UpdateTransaction.NO_OP;
                 cfs.apply(upd, indexTransaction, opGroup, commitLogPosition);
+
+                // Continuous repair
+                if (StorageService.instance.isInitialized() && !SchemaConstants.isSystemKeyspace(upd.metadata().ksName))
+                    MutationTracker.instance.recordPartitionUpdate(upd, mutation.createdAt);
+
                 if (requiresViewUpdate)
                     baseComplete.set(System.currentTimeMillis());
             }

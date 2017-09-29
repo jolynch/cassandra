@@ -108,6 +108,7 @@ public final class SystemKeyspace
     public static final String VIEWS_BUILDS_IN_PROGRESS = "views_builds_in_progress";
     public static final String BUILT_VIEWS = "built_views";
     public static final String PREPARED_STATEMENTS = "prepared_statements";
+    public static final String READ_REPAIR_HINTS = "read_repair_hints";
 
     @Deprecated public static final String LEGACY_HINTS = "hints";
     @Deprecated public static final String LEGACY_BATCHLOG = "batchlog";
@@ -295,6 +296,17 @@ public final class SystemKeyspace
                 + "query_string text,"
                 + "PRIMARY KEY ((prepared_id)))");
 
+    public static final CFMetaData ReadRepairHints =
+    compile(READ_REPAIR_HINTS,
+            "read repair hints",
+            "CREATE TABLE %s ("
+            + "cfId uuid,"
+            + "mutation_primary_key blob,"
+            + "mutation_ts timeuuid,"
+            + "dirty_replicas set<uuid>,"
+            + "PRIMARY KEY ((cfId), mutation_primary_key, mutation_ts)) "
+            + "WITH compaction = {'class': 'LeveledCompactionStrategy'}");
+
     @Deprecated
     public static final CFMetaData LegacyHints =
         compile(LEGACY_HINTS,
@@ -467,6 +479,7 @@ public final class SystemKeyspace
                          LegacyHints,
                          LegacyBatchlog,
                          PreparedStatements,
+                         ReadRepairHints,
                          LegacyKeyspaces,
                          LegacyColumnfamilies,
                          LegacyColumns,
@@ -554,6 +567,8 @@ public final class SystemKeyspace
                         bytesOut,
                         rowsMerged);
     }
+
+
 
     public static TabularData getCompactionHistory() throws OpenDataException
     {

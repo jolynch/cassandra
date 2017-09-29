@@ -25,6 +25,7 @@ import java.net.InetAddress;
 import java.net.URL;
 import java.net.UnknownHostException;
 import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
@@ -55,6 +56,7 @@ import org.apache.cassandra.cql3.functions.ThreadAwareSecurityManager;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.commitlog.CommitLog;
+import org.apache.cassandra.db.continuousrepair.BackgroundRepair;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.exceptions.StartupException;
 import org.apache.cassandra.gms.Gossiper;
@@ -422,6 +424,17 @@ public class CassandraDaemon
         int sizeRecorderInterval = Integer.getInteger("cassandra.size_recorder_interval", 5 * 60);
         if (sizeRecorderInterval > 0)
             ScheduledExecutors.optionalTasks.scheduleWithFixedDelay(SizeEstimatesRecorder.instance, 30, sizeRecorderInterval, TimeUnit.SECONDS);
+
+        // schedule periodic background mutation based read reopair
+        int backgroundRepairInterval = Integer.getInteger("cassandra.background_repair_interval", 2);
+        if (backgroundRepairInterval > 0)
+        {
+            int initialDelay = ThreadLocalRandom.current().nextInt(
+                backgroundRepairInterval, backgroundRepairInterval * 3);
+            ScheduledExecutors.optionalTasks.scheduleWithFixedDelay(
+            BackgroundRepair.instance, initialDelay, backgroundRepairInterval, TimeUnit.SECONDS);
+        }
+
 
         // Thrift
         InetAddress rpcAddr = DatabaseDescriptor.getRpcAddress();

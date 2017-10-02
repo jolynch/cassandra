@@ -23,10 +23,8 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.cql3.UntypedResultSet;
-import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.DecoratedKey;
-import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.SinglePartitionReadCommand;
 import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.db.partitions.PartitionIterator;
@@ -40,7 +38,7 @@ import static org.apache.cassandra.cql3.QueryProcessor.executeInternalWithPaging
 
 
 /**
- * Run repair all the time!
+ * Run repair all the time in the background
  */
 public class BackgroundRepair implements Runnable
 {
@@ -51,8 +49,8 @@ public class BackgroundRepair implements Runnable
 
     public void run()
     {
-        //logger.info("Repairing all the things!!");
         initiateReadRepair();
+        // TODO table config or jmx or auto-deducing or somethin
         maxRRs = 2000;
     }
 

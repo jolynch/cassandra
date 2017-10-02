@@ -20,15 +20,9 @@ package org.apache.cassandra.db.continuousrepair;
 
 import java.util.HashSet;
 import java.util.List;
-import java.util.Queue;
 import java.util.UUID;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -40,10 +34,7 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.service.StorageService;
-import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.UUIDGen;
-
-import static org.apache.cassandra.cql3.QueryProcessor.executeInternal;
 
 public class MutationTracker
 {
@@ -65,30 +56,18 @@ public class MutationTracker
         {
             public void run()
             {
-                //logger.info("Writing dirty bit for {} table", upd.metadata().cfName);
+                // logger.info("Writing dirty bit for {} table", upd.metadata().cfName);
                 List<UUID> endpoints = Lists.newArrayList(StorageService.instance.getNaturalAndPendingEndpoints(
                 upd.metadata().ksName, upd.partitionKey().getToken()).iterator()).stream()
                                             .map(StorageService.instance::getHostIdForEndpoint)
                                             .collect(Collectors.toList());
-
-                /* This writes things to the commitlog, boo
-                String insertMarker = String.format(
-                    "INSERT INTO system.%s (cfId, mutation_primary_key, mutation_ts, dirty_replicas) VALUES (?, ?, ?, ?)",
-                    SystemKeyspace.READ_REPAIR_HINTS
-                );
-
-                executeInternal(insertMarker,
-                                upd.metadata().cfId, upd.partitionKey().getKey(),
-                                UUIDGen.getTimeUUID(mutationTime), new HashSet<>(endpoints));
-                                */
-
 
                 PartitionUpdate.SimpleBuilder builder = PartitionUpdate.simpleBuilder(SystemKeyspace.ReadRepairHints, upd.metadata().cfId);
                 builder.row(upd.partitionKey().getKey(), UUIDGen.getTimeUUID(mutationTime))
                        .timestamp(mutationTime)
                        .add("dirty_replicas", new HashSet<>(endpoints));
                 // I believe that this does not need to be durable because it is derived from an existing
-                // durable write
+                // durable write, might have to tie into flushes to guarantee this but ...
                 builder.buildAsMutation().apply(false);
             }
         });

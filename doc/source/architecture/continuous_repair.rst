@@ -102,7 +102,7 @@ set of just that key is live at some point in the future.
 
 -  W = Write
 
--  R = Read Repair
+-  RR = Read Repair
 
 **Performance:**
 
@@ -110,7 +110,7 @@ Unfortunately this simple protocol turns every mutation from a W\_{RF}
 operation into a fairly expensive double write (regular + read repair)
 and later read + write (read repair):
 
-2\*W\_{RF} + (R\_{RF})^2
+2\*W\_{RF} + (R\_{RF^2})
 
 Optimization #1: Offload second write and amortize them
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -122,7 +122,7 @@ buffer bloat (similar to hint buffering). This means that we can very
 efficiently write these RR hints to disk and hopefully not slow down
 writes. This should hopefully get us to (amortized):
 
-~1 W\_{RF} + (R\_{RF})^2
+~1 W\_{RF} + (R\_{RF^2})
 
 Optimization #2: Coordinator cleans read repair hints on successful write 
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -139,7 +139,7 @@ This improves the typical performance to:
 When nodes are down for prolonged periods, the same worst case perf
 occurs.
 
-~1 W\_{RF} + (R\_{RF})^2
+~1 W\_{RF} + (R\_{RF^2})
 
 Optimization #3: Hinting coordinators remove read repair hints
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -163,9 +163,12 @@ Optimization #4: Repairing replica removes read repair hints from other replicas
 
 When a node executes a successful read repair for a particular mutation,
 it can remove the read repair hints from the other replicas as well.
-This improves the worst case in all situations to:
+I believe this improves the worst case in all situations to:
 
-<= ~1 W\_{RF} + R\_{RF} + 1 cheap W\_{RF} write
+<= ~1 W\_{RF} + ~1 R\_{RF} + 1 cheap W\_{RF} write
+
+Typical case (nodes are available) is
+<= ~1 W\_{RF} + + 1 cheap W\_{RF} write
 
 Concerns:
 ~~~~~~~~~

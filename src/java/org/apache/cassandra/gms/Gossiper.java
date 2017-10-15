@@ -112,6 +112,9 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
     /* live member set */
     private final Set<InetAddress> liveEndpoints = new ConcurrentSkipListSet<InetAddress>(inetcomparator);
 
+    /* For producing time bounded gossip orderings */
+    private final ConcurrentLinkedQueue<InetAddress> endpointGossipOrder = new ConcurrentLinkedQueue<>();
+
     /* unreachable member set */
     private final Map<InetAddress, Long> unreachableEndpoints = new ConcurrentHashMap<InetAddress, Long>();
 
@@ -137,8 +140,6 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
     private final Map<InetAddress, EndpointState> endpointShadowStateMap = new ConcurrentHashMap<>();
 
     private volatile long lastProcessedMessageAt = System.currentTimeMillis();
-    private volatile int nextGossipIndex = -1;
-    private volatile int nextGossipShuffle = -1;
 
     private class GossipTask implements Runnable
     {
@@ -684,18 +685,18 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         if (size < 1)
             return false;
 
-        if (nextGossipIndex >= nextGossipShuffle) {
-            nextGossipIndex = random.nextInt(size);
-            nextGossipShuffle = nextGossipIndex;
+        InetAddress to = endpointGossipOrder.poll();
+        if (to == null) {
+            Collections.shuffle(endpoints);
+            endpointGossipOrder.addAll(endpoints);
+            return false;
         }
 
-        InetAddress to = endpoints.get(nextGossipIndex % size);
         if (logger.isTraceEnabled())
             logger.trace("Sending a GossipDigestSyn to {} ...", to);
         if (firstSynSendAt == 0)
             firstSynSendAt = System.nanoTime();
         MessagingService.instance().sendOneWay(message, to);
-        nextGossipShuffle = (nextGossipIndex + 1) % size;
 
         return seeds.contains(to);
     }

@@ -29,4 +29,6 @@ public interface GossiperMBean
 
     public void assassinateEndpoint(String address) throws UnknownHostException;
 
+    public void initiateFullGossip();
+
 }

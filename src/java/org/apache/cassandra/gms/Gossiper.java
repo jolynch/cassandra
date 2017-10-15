@@ -137,6 +137,8 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
     private final Map<InetAddress, EndpointState> endpointShadowStateMap = new ConcurrentHashMap<>();
 
     private volatile long lastProcessedMessageAt = System.currentTimeMillis();
+    private volatile int nextGossipIndex = -1;
+    private volatile int nextGossipShuffle = -1;
 
     private class GossipTask implements Runnable
     {
@@ -629,6 +631,17 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         logger.warn("Finished assassinating {}", endpoint);
     }
 
+    /**
+     * Forces this node to regossip with the entire cluster, useful during scaling events to ensure
+     * consistent information
+     */
+    public void initiateFullGossip()
+    {
+        for (int i = 0; i < endpointStateMap.size(); i++) {
+            executor.submit(new GossipTask());
+        }
+    }
+
     public boolean isKnownEndpoint(InetAddress endpoint)
     {
         return endpointStateMap.containsKey(endpoint);
@@ -646,21 +659,44 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
      * @param epSet   a set of endpoint from which a random endpoint is chosen.
      * @return true if the chosen endpoint is also a seed.
      */
-    private boolean sendGossip(MessageOut<GossipDigestSyn> message, Set<InetAddress> epSet)
+    private void sendGossipRandom(MessageOut<GossipDigestSyn> message, Set<InetAddress> epSet)
     {
-        List<InetAddress> liveEndpoints = ImmutableList.copyOf(epSet);
+        List<InetAddress> endpoints = ImmutableList.copyOf(epSet);
 
-        int size = liveEndpoints.size();
+        int size = endpoints.size();
         if (size < 1)
-            return false;
+            return;
+
         /* Generate a random number from 0 -> size */
         int index = (size == 1) ? 0 : random.nextInt(size);
-        InetAddress to = liveEndpoints.get(index);
+        InetAddress to = endpoints.get(index);
         if (logger.isTraceEnabled())
             logger.trace("Sending a GossipDigestSyn to {} ...", to);
         if (firstSynSendAt == 0)
             firstSynSendAt = System.nanoTime();
         MessagingService.instance().sendOneWay(message, to);
+    }
+
+    private boolean sendGossipRoundRobin(MessageOut<GossipDigestSyn> message, Set<InetAddress> epSet) {
+        List<InetAddress> endpoints = ImmutableList.copyOf(epSet);
+
+        int size = endpoints.size();
+        if (size < 1)
+            return false;
+
+        if (nextGossipIndex >= nextGossipShuffle) {
+            nextGossipIndex = random.nextInt(size);
+            nextGossipShuffle = nextGossipIndex;
+        }
+
+        InetAddress to = endpoints.get(nextGossipIndex % size);
+        if (logger.isTraceEnabled())
+            logger.trace("Sending a GossipDigestSyn to {} ...", to);
+        if (firstSynSendAt == 0)
+            firstSynSendAt = System.nanoTime();
+        MessagingService.instance().sendOneWay(message, to);
+        nextGossipShuffle = (nextGossipIndex + 1) % size;
+
         return seeds.contains(to);
     }
 
@@ -670,7 +706,8 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         int size = liveEndpoints.size();
         if (size == 0)
             return false;
-        return sendGossip(message, liveEndpoints);
+
+        return sendGossipRoundRobin(message, liveEndpoints);
     }
 
     /* Sends a Gossip message to an unreachable member */
@@ -684,7 +721,7 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
             double prob = unreachableEndpointCount / (liveEndpointCount + 1);
             double randDbl = random.nextDouble();
             if (randDbl < prob)
-                sendGossip(message, unreachableEndpoints.keySet());
+                sendGossipRandom(message, unreachableEndpoints.keySet());
         }
     }
 
@@ -701,7 +738,7 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
 
             if (liveEndpoints.size() == 0)
             {
-                sendGossip(prod, seeds);
+                sendGossipRandom(prod, seeds);
             }
             else
             {
@@ -709,7 +746,7 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
                 double probability = seeds.size() / (double) (liveEndpoints.size() + unreachableEndpoints.size());
                 double randDbl = random.nextDouble();
                 if (randDbl <= probability)
-                    sendGossip(prod, seeds);
+                    sendGossipRandom(prod, seeds);
             }
         }
     }

@@ -939,7 +939,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                         if (existing != null)
                         {
                             long nanoDelay = delay * 1000000L;
-                            if (Gossiper.instance.getEndpointStateForEndpoint(existing).getUpdateTimestamp() > (System.nanoTime() - nanoDelay))
+                            EndpointState epState = Gossiper.instance.getEndpointStateForEndpoint(existing);
+                            if (epState.getUpdateTimestamp() > (System.nanoTime() - nanoDelay) && epState.isAlive())
                                 throw new UnsupportedOperationException("Cannot replace a live node... ");
                             current.add(existing);
                         }

@@ -679,7 +679,7 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
     }
 
     private boolean sendGossipRoundRobin(MessageOut<GossipDigestSyn> message, Set<InetAddress> epSet) {
-        List<InetAddress> endpoints = ImmutableList.copyOf(epSet);
+        List<InetAddress> endpoints = new ArrayList<>(epSet);
 
         int size = endpoints.size();
         if (size < 1)
@@ -687,8 +687,12 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
 
         InetAddress to = endpointGossipOrder.poll();
         if (to == null) {
-            Collections.shuffle(endpoints);
-            endpointGossipOrder.addAll(endpoints);
+            synchronized (endpointGossipOrder)
+            {
+                Collections.shuffle(endpoints);
+                endpointGossipOrder.clear();
+                endpointGossipOrder.addAll(endpoints);
+            }
             return false;
         }
 

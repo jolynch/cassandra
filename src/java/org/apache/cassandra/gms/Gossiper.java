@@ -112,9 +112,6 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
     /* live member set */
     private final Set<InetAddress> liveEndpoints = new ConcurrentSkipListSet<InetAddress>(inetcomparator);
 
-    /* For producing time bounded gossip orderings */
-    private final ConcurrentLinkedQueue<InetAddress> endpointGossipOrder = new ConcurrentLinkedQueue<>();
-
     /* unreachable member set */
     private final Map<InetAddress, Long> unreachableEndpoints = new ConcurrentHashMap<InetAddress, Long>();
 
@@ -124,6 +121,9 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
 
     /* map where key is the endpoint and value is the state associated with the endpoint */
     final ConcurrentMap<InetAddress, EndpointState> endpointStateMap = new ConcurrentHashMap<InetAddress, EndpointState>();
+    /* For producing time bounded gossip orderings */
+    private final List<InetAddress> endpointGossipOrder = new CopyOnWriteArrayList<>();
+    private volatile int endpointGossipPos = 0;
 
     /* map where key is endpoint and value is timestamp when this endpoint was removed from
      * gossip. We will ignore any gossip regarding these endpoints for QUARANTINE_DELAY time
@@ -167,8 +167,8 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
                     MessageOut<GossipDigestSyn> message = new MessageOut<GossipDigestSyn>(MessagingService.Verb.GOSSIP_DIGEST_SYN,
                                                                                           digestSynMessage,
                                                                                           GossipDigestSyn.serializer);
-                    /* Gossip to some random live member */
-                    boolean gossipedToSeed = doGossipToLiveMember(message);
+                    /* Gossip per the normal round robin (shuffled) ordering */
+                    boolean gossipedToSeed = doGossipRoundRobin(message);
 
                     /* Gossip to some unreachable member with some probability to check if he is back up */
                     maybeGossipToUnreachableMember(message);
@@ -214,6 +214,7 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         /* register with the Failure Detector for receiving Failure detector events */
         FailureDetector.instance.registerFailureDetectionEventListener(this);
 
+        logger.info("Starting up new and improved gossiper");
         // Register this instance with JMX
         try
         {
@@ -678,23 +679,26 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         MessagingService.instance().sendOneWay(message, to);
     }
 
-    private boolean sendGossipRoundRobin(MessageOut<GossipDigestSyn> message, Set<InetAddress> epSet) {
-        List<InetAddress> endpoints = new ArrayList<>(epSet);
-
-        int size = endpoints.size();
-        if (size < 1)
-            return false;
-
-        InetAddress to = endpointGossipOrder.poll();
-        if (to == null) {
+    /* Sends a Gossip message to a live member and returns true if the recipient was a seed */
+    private boolean doGossipRoundRobin(MessageOut<GossipDigestSyn> message)
+    {
+        if (endpointGossipPos >= endpointGossipOrder.size())
+        {
             synchronized (endpointGossipOrder)
             {
-                Collections.shuffle(endpoints);
+
                 endpointGossipOrder.clear();
-                endpointGossipOrder.addAll(endpoints);
+                endpointGossipOrder.addAll(endpointStateMap.keySet());
+                Collections.shuffle(endpointGossipOrder);
+                endpointGossipPos = 0;
             }
-            return false;
         }
+        List<InetAddress> endpoints = ImmutableList.copyOf(endpointGossipOrder);
+
+        if (endpoints.size() == 0)
+            return false;
+        InetAddress to = endpoints.get(endpointGossipPos % endpoints.size());
+        endpointGossipPos += 1;
 
         if (logger.isTraceEnabled())
             logger.trace("Sending a GossipDigestSyn to {} ...", to);
@@ -703,16 +707,6 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         MessagingService.instance().sendOneWay(message, to);
 
         return seeds.contains(to);
-    }
-
-    /* Sends a Gossip message to a live member and returns true if the recipient was a seed */
-    private boolean doGossipToLiveMember(MessageOut<GossipDigestSyn> message)
-    {
-        int size = liveEndpoints.size();
-        if (size == 0)
-            return false;
-
-        return sendGossipRoundRobin(message, liveEndpoints);
     }
 
     /* Sends a Gossip message to an unreachable member */

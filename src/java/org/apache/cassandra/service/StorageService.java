@@ -915,7 +915,10 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                         InetAddress existing = tokenMetadata.getEndpoint(token);
                         if (existing != null)
                         {
-                            long nanoDelay = delay * 1000000L;
+                            // Only worry if there was a very recent (defined as half the amount of time we slept above)
+                            // update to gossip. If the node is actually alive there will be plenty of updates
+                            // through heartbeats
+                            long nanoDelay = (LoadBroadcaster.BROADCAST_INTERVAL / 2) * 1000000L;
                             if (Gossiper.instance.getEndpointStateForEndpoint(existing).getUpdateTimestamp() > (System.nanoTime() - nanoDelay))
                                 throw new UnsupportedOperationException("Cannot replace a live node... ");
                             current.add(existing);

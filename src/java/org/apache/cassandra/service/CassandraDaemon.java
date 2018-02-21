@@ -503,9 +503,11 @@ public class CassandraDaemon
      */
     public void start()
     {
-        StartupClusterConnectivityChecker connectivityChecker = new StartupClusterConnectivityChecker(DatabaseDescriptor.getBlockForPeersPercentage(),
-                                                                                                      DatabaseDescriptor.getBlockForPeersTimeoutInSeconds(),
-                                                                                                      Gossiper.instance::isAlive);
+        StartupClusterConnectivityChecker connectivityChecker = new StartupClusterConnectivityChecker(
+            DatabaseDescriptor.getBlockForPeersLocalDC(), DatabaseDescriptor.getBlockForPeersEachDC(), DatabaseDescriptor.getBlockForPeersAllDCS(),
+            DatabaseDescriptor.getBlockForPeersTimeoutInSeconds(),
+            Gossiper.instance::isAlive, DatabaseDescriptor.getEndpointSnitch()::getDatacenter
+        );
         Set<InetAddressAndPort> peers = Gossiper.instance.getEndpointStates().stream().map(Map.Entry::getKey).collect(Collectors.toSet());
         connectivityChecker.execute(peers);
 

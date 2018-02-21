@@ -373,8 +373,30 @@ public class Config
 
     public String full_query_log_dir = null;
 
-    // parameters to adjust how much to delay startup until a certain amount of the cluster is connect to and marked alive
-    public int block_for_peers_percentage = 70;
+    /**
+     * Parameters to adjust how much to delay startup until a certain amount of the cluster is marked alive and
+     * have successful network connection
+     *
+     * The counts represent a number of hosts in the local datacenter, each datacenter, and all datacenters respectively
+     * which are allowed to be in the DOWN state or disconnected when this node makes itself available as a coordinator.
+     *
+     * These defaults are generally correct where clients are using LOCAL consistency levels, and have natural settings
+     * for other use cases if you need availability to clients operating at various CLs. For example:
+     *     Consistency Level | local_dc     | each_dc     | all_dcs
+     *     --------------------------------------------------------
+     *     LOCAL_QUORUM      | 1 (default)  | default     | default
+     *     EACH_QUORUM       | max          | 1           | default
+     *     ONE               | any          | default     | 2
+     *     QUORUM            | any          | default     | (RF / 2) - 1
+     *     ALL               | default      | default     | 0
+     *
+     * A concrete example with QUORUM would be if you have 3 replicas in 2 datacenters, then you would set
+     * block_for_peers_all_dcs to (6 / 2) - 1 = 2 because that guarantees that at most 2 hosts in all datacenters
+     * are down when you start taking client traffic, which should satistfy QUORUM for all RF=6 QUORUM queries.
+     */
+    public int block_for_peers_local_dc = 1;
+    public int block_for_peers_each_dc = Integer.MAX_VALUE;
+    public int block_for_peers_all_dcs = Integer.MAX_VALUE;
     public int block_for_peers_timeout_in_secs = 10;
 
 

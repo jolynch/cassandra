@@ -374,8 +374,10 @@ public class Config
     public String full_query_log_dir = null;
 
     // parameters to adjust how much to delay startup until a certain amount of the cluster is connect to and marked alive
-    public int block_for_peers_percentage = 70;
-    public int block_for_peers_timeout_in_secs = 10;
+    public int block_for_peers_local_dc = 1;
+    public int block_for_peers_each_dc = Integer.MAX_VALUE;
+    public int block_for_peers_all_dcs = Integer.MAX_VALUE;
+    public int block_for_peers_timeout_in_secs = -1;
 
 
     /**

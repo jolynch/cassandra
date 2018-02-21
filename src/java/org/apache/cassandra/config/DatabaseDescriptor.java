@@ -2523,9 +2523,17 @@ public class DatabaseDescriptor
         return  conf.full_query_log_dir;
     }
 
-    public static int getBlockForPeersPercentage()
+    public static int getBlockForPeersLocalDC()
     {
-        return conf.block_for_peers_percentage;
+        return conf.block_for_peers_local_dc;
+    }
+
+    public static int getBlockForPeersEachDC() {
+        return conf.block_for_peers_each_dc;
+    }
+
+    public static int getBlockForPeersAllDCS() {
+        return conf.block_for_peers_all_dcs;
     }
 
     public static int getBlockForPeersTimeoutInSeconds()

@@ -158,6 +158,16 @@ public class EC2SnitchTest
     }
 
     @Test
+    public void conflictingRack_RequiresLegacy_HappyPathWithDCSuffix()
+    {
+        Set<String> datacenters = new HashSet<>();
+        datacenters.add("us-east_CUSTOM_SUFFIX");
+        Set<String> racks = new HashSet<>();
+        racks.add("1a");
+        Assert.assertFalse(Ec2Snitch.hasConflictingDatacenterOrRack(datacenters, racks, true));
+    }
+
+    @Test
     public void conflictingRack_RequiresAmazonName_CorrectAmazonName()
     {
         Set<String> racks = new HashSet<>();
@@ -178,6 +188,16 @@ public class EC2SnitchTest
     {
         Set<String> datacenters = new HashSet<>();
         datacenters.add("us-east-1");
+        Set<String> racks = new HashSet<>();
+        racks.add("us-east-1a");
+        Assert.assertFalse(Ec2Snitch.hasConflictingDatacenterOrRack(datacenters, racks, false));
+    }
+
+    @Test
+    public void conflictingRack_RequiresAmazonName_HappyPathWithDCSuffix()
+    {
+        Set<String> datacenters = new HashSet<>();
+        datacenters.add("us-east-1_CUSTOM_SUFFIX");
         Set<String> racks = new HashSet<>();
         racks.add("us-east-1a");
         Assert.assertFalse(Ec2Snitch.hasConflictingDatacenterOrRack(datacenters, racks, false));

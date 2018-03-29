@@ -53,8 +53,8 @@ public class Ec2Snitch extends AbstractNetworkTopologySnitch
     private final boolean usingLegacyNaming;
 
     private Map<InetAddressAndPort, Map<String, String>> savedEndpoints;
-    protected String ec2zone;
-    protected String ec2region;
+    protected final String ec2zone;
+    protected final String ec2region;
 
     public Ec2Snitch() throws IOException, ConfigurationException
     {
@@ -68,6 +68,7 @@ public class Ec2Snitch extends AbstractNetworkTopologySnitch
         // if using the full naming scheme, region name is created by removing letters from the 
         // end of the availability zone and zone is the full zone name
         usingLegacyNaming = isUsingLegacyNaming(props);
+        String region;
         if (usingLegacyNaming)
         {
             // Split "us-east-1a" or "asia-1a" into "us-east"/"1a" and "asia"/"1a".
@@ -75,18 +76,18 @@ public class Ec2Snitch extends AbstractNetworkTopologySnitch
             ec2zone = splits[splits.length - 1];
 
             // hack for CASSANDRA-4026
-            ec2region = az.substring(0, az.length() - 1);
-            if (ec2region.endsWith("1"))
-                ec2region = az.substring(0, az.length() - 3);
+            region = az.substring(0, az.length() - 1);
+            if (region.endsWith("1"))
+                region = az.substring(0, az.length() - 3);
         }
         else
         {
-            ec2region = az.replaceFirst("[a-z]+$","");
+            region = az.replaceFirst("[a-z]+$","");
             ec2zone = az;
         }
 
         String datacenterSuffix = props.get("dc_suffix", "");
-        ec2region = ec2region.concat(datacenterSuffix);
+        ec2region = region.concat(datacenterSuffix);
         logger.info("EC2Snitch using region: {}, zone: {}.", ec2region, ec2zone);
     }
 
@@ -162,8 +163,16 @@ public class Ec2Snitch extends AbstractNetworkTopologySnitch
     {
         for (String dc : datacenters)
         {
-            // predicated on the late-2017 AWS naming 'convention' that all region names end with a digit
-            boolean dcUsesLegacyFormat = !dc.matches(".*[0-9]");
+            // predicated on the late-2017 AWS naming 'convention' that all region names end with a digit.
+            // Unfortunately, life isn't that simple. Since we allow custom datacenter suffixes (CASSANDRA-5155),
+            // an operator could conceiveably make the suffix "a", and thus create a region name that looks just like
+            // one of the region's availability zones. (for example, "us-east-1a").
+            // Further, we can't make any assumptions of what that suffix might be by looking at this node's
+            // datacenterSuffix as conceivably their could be many different suffixes in play for a given region.
+            //
+            // Thus, the best we can do is make sure the region name follows
+            // the basic region naming pattern: "us-east-1<custom-suffix>"
+            boolean dcUsesLegacyFormat = !dc.matches("[a-z]*-[a-z].*-[\\d].*");
             if (dcUsesLegacyFormat != usingLegacyNaming)
                 return true;
         }
@@ -171,8 +180,10 @@ public class Ec2Snitch extends AbstractNetworkTopologySnitch
         for (String rack : racks)
         {
             // predicated on late-2017 AWS naming 'convention' that AZs do not have a digit as the first char -
-            // we had that in our legacy AZ (rack) names
-            boolean rackUsesLegacyFormat = rack.matches("[0-9].*");
+            // we had that in our legacy AZ (rack) names. Thus we test to see if the rack is in the legacy format.
+            //
+            // NOTE: the allowed custom suffix only applies to datacenter (region) names, not availability zones.
+            boolean rackUsesLegacyFormat = rack.matches("[\\d][a-z]");
             if (rackUsesLegacyFormat != usingLegacyNaming)
                 return true;
         }

@@ -449,8 +449,8 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
         return maxScore;
     }
 
-    public boolean hasConflictingDatacenterOrRack(Set<String> datacenters, Set<String> racks)
+    public boolean validate(Set<String> datacenters, Set<String> racks)
     {
-        return subsnitch.hasConflictingDatacenterOrRack(datacenters, racks);
+        return subsnitch.validate(datacenters, racks);
     }
 }

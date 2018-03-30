@@ -40,13 +40,14 @@ import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.gms.VersionedValue;
 import org.apache.cassandra.service.StorageService;
 
+import static org.apache.cassandra.locator.Ec2Snitch.EC2_NAMING_LEGACY;
 import static org.junit.Assert.assertEquals;
 
 public class EC2SnitchTest
 {
     private static String az;
 
-    private SnitchProperties legacySnitchProps = new SnitchProperties()
+    private final SnitchProperties legacySnitchProps = new SnitchProperties()
     {
         public String get(String propertyName, String defaultValue)
         {
@@ -132,75 +133,75 @@ public class EC2SnitchTest
     }
 
     @Test
-    public void conflictingDatacenter_RequiresLegacy_CorrectAmazonName()
+    public void validateDatacenter_RequiresLegacy_CorrectAmazonName()
     {
         Set<String> datacenters = new HashSet<>();
         datacenters.add("us-east-1");
-        Assert.assertTrue(Ec2Snitch.hasConflictingDatacenterOrRack(datacenters, Collections.emptySet(), true));
+        Assert.assertFalse(Ec2Snitch.validate(datacenters, Collections.emptySet(), true));
     }
 
     @Test
-    public void conflictingDatacenter_RequiresLegacy_LegacyName()
+    public void validateDatacenter_RequiresLegacy_LegacyName()
     {
         Set<String> datacenters = new HashSet<>();
         datacenters.add("us-east");
-        Assert.assertFalse(Ec2Snitch.hasConflictingDatacenterOrRack(datacenters, Collections.emptySet(), true));
+        Assert.assertTrue(Ec2Snitch.validate(datacenters, Collections.emptySet(), true));
     }
 
     @Test
-    public void conflictingRack_RequiresLegacy_HappyPath()
+    public void validate_RequiresLegacy_HappyPath()
     {
         Set<String> datacenters = new HashSet<>();
         datacenters.add("us-east");
         Set<String> racks = new HashSet<>();
         racks.add("1a");
-        Assert.assertFalse(Ec2Snitch.hasConflictingDatacenterOrRack(datacenters, racks, true));
+        Assert.assertTrue(Ec2Snitch.validate(datacenters, racks, true));
     }
 
     @Test
-    public void conflictingRack_RequiresLegacy_HappyPathWithDCSuffix()
+    public void validate_RequiresLegacy_HappyPathWithDCSuffix()
     {
         Set<String> datacenters = new HashSet<>();
         datacenters.add("us-east_CUSTOM_SUFFIX");
         Set<String> racks = new HashSet<>();
         racks.add("1a");
-        Assert.assertFalse(Ec2Snitch.hasConflictingDatacenterOrRack(datacenters, racks, true));
+        Assert.assertTrue(Ec2Snitch.validate(datacenters, racks, true));
     }
 
     @Test
-    public void conflictingRack_RequiresAmazonName_CorrectAmazonName()
+    public void validateRack_RequiresAmazonName_CorrectAmazonName()
     {
         Set<String> racks = new HashSet<>();
         racks.add("us-east-1a");
-        Assert.assertFalse(Ec2Snitch.hasConflictingDatacenterOrRack(Collections.emptySet(), racks, false));
+        Assert.assertTrue(Ec2Snitch.validate(Collections.emptySet(), racks, false));
     }
 
     @Test
-    public void conflictingRack_RequiresAmazonName_LegacyName()
+    public void validateRack_RequiresAmazonName_LegacyName()
     {
         Set<String> racks = new HashSet<>();
         racks.add("1a");
-        Assert.assertTrue(Ec2Snitch.hasConflictingDatacenterOrRack(Collections.emptySet(), racks, false));
+        Assert.assertFalse(Ec2Snitch.validate(Collections.emptySet(), racks, false));
     }
 
     @Test
-    public void conflictingRack_RequiresAmazonName_HappyPath()
+    public void validate_RequiresAmazonName_HappyPath()
     {
         Set<String> datacenters = new HashSet<>();
         datacenters.add("us-east-1");
         Set<String> racks = new HashSet<>();
         racks.add("us-east-1a");
-        Assert.assertFalse(Ec2Snitch.hasConflictingDatacenterOrRack(datacenters, racks, false));
+        Assert.assertTrue(Ec2Snitch.validate(datacenters, racks, false));
     }
 
     @Test
-    public void conflictingRack_RequiresAmazonName_HappyPathWithDCSuffix()
+    public void validate_RequiresAmazonName_HappyPathWithDCSuffix()
     {
         Set<String> datacenters = new HashSet<>();
         datacenters.add("us-east-1_CUSTOM_SUFFIX");
         Set<String> racks = new HashSet<>();
         racks.add("us-east-1a");
-        Assert.assertFalse(Ec2Snitch.hasConflictingDatacenterOrRack(datacenters, racks, false));
+        Assert.assertTrue(Ec2Snitch.validate(datacenters, racks, false));
     }
 
     @AfterClass

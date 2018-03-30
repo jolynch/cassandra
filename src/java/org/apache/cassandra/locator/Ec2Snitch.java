@@ -37,9 +37,6 @@ import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.utils.FBUtilities;
 
-import static org.apache.cassandra.locator.SnitchProperties.EC2_NAMING_LEGACY;
-import static org.apache.cassandra.locator.SnitchProperties.EC2_NAMING_STANDARD;
-
 /**
  * A snitch that assumes an EC2 region is a DC and an EC2 availability_zone
  *  is a rack. This information is available in the config for the node.
@@ -47,14 +44,20 @@ import static org.apache.cassandra.locator.SnitchProperties.EC2_NAMING_STANDARD;
 public class Ec2Snitch extends AbstractNetworkTopologySnitch
 {
     protected static final Logger logger = LoggerFactory.getLogger(Ec2Snitch.class);
-    protected static final String ZONE_NAME_QUERY_URL = "http://169.254.169.254/latest/meta-data/placement/availability-zone";
+
+    private static final String SNITCH_PROP_NAMING_SCHEME = "ec2_naming_scheme";
+    static final String EC2_NAMING_LEGACY = "legacy";
+    private static final String EC2_NAMING_STANDARD = "standard";
+
+    private static final String ZONE_NAME_QUERY_URL = "http://169.254.169.254/latest/meta-data/placement/availability-zone";
     private static final String DEFAULT_DC = "UNKNOWN-DC";
     private static final String DEFAULT_RACK = "UNKNOWN-RACK";
+
+    final String ec2region;
+    private final String ec2zone;
     private final boolean usingLegacyNaming;
 
     private Map<InetAddressAndPort, Map<String, String>> savedEndpoints;
-    protected final String ec2zone;
-    protected final String ec2region;
 
     public Ec2Snitch() throws IOException, ConfigurationException
     {
@@ -82,6 +85,8 @@ public class Ec2Snitch extends AbstractNetworkTopologySnitch
         }
         else
         {
+            // grab the region name, which is embedded in the availability zone name.
+            // thus an AZ of "us-east-1a" yields the region name "us-east-1"
             region = az.replaceFirst("[a-z]+$","");
             ec2zone = az;
         }
@@ -93,7 +98,7 @@ public class Ec2Snitch extends AbstractNetworkTopologySnitch
 
     private static boolean isUsingLegacyNaming(SnitchProperties props)
     {
-        return props.get("ec2_naming_scheme", EC2_NAMING_STANDARD).equalsIgnoreCase(EC2_NAMING_LEGACY);
+        return props.get(SNITCH_PROP_NAMING_SCHEME, EC2_NAMING_STANDARD).equalsIgnoreCase(EC2_NAMING_LEGACY);
     }
 
     String awsApiCall(String url) throws IOException, ConfigurationException
@@ -153,14 +158,17 @@ public class Ec2Snitch extends AbstractNetworkTopologySnitch
         return state.getApplicationState(ApplicationState.DC).value;
     }
 
-    public boolean hasConflictingDatacenterOrRack(Set<String> datacenters, Set<String> racks)
+    @Override
+    public boolean validate(Set<String> datacenters, Set<String> racks)
     {
-        return hasConflictingDatacenterOrRack(datacenters, racks, usingLegacyNaming);
+        return validate(datacenters, racks, usingLegacyNaming);
     }
 
     @VisibleForTesting
-    static boolean hasConflictingDatacenterOrRack(Set<String> datacenters, Set<String> racks, boolean usingLegacyNaming)
+    static boolean validate(Set<String> datacenters, Set<String> racks, boolean usingLegacyNaming)
     {
+        boolean valid = true;
+
         for (String dc : datacenters)
         {
             // predicated on the late-2017 AWS naming 'convention' that all region names end with a digit.
@@ -172,9 +180,9 @@ public class Ec2Snitch extends AbstractNetworkTopologySnitch
             //
             // Thus, the best we can do is make sure the region name follows
             // the basic region naming pattern: "us-east-1<custom-suffix>"
-            boolean dcUsesLegacyFormat = !dc.matches("[a-z]*-[a-z].*-[\\d].*");
+            boolean dcUsesLegacyFormat = !dc.matches("[a-z]+-[a-z].+-[\\d].*");
             if (dcUsesLegacyFormat != usingLegacyNaming)
-                return true;
+                valid = false;
         }
 
         for (String rack : racks)
@@ -185,9 +193,18 @@ public class Ec2Snitch extends AbstractNetworkTopologySnitch
             // NOTE: the allowed custom suffix only applies to datacenter (region) names, not availability zones.
             boolean rackUsesLegacyFormat = rack.matches("[\\d][a-z]");
             if (rackUsesLegacyFormat != usingLegacyNaming)
-                return true;
+                valid = false;
         }
 
-        return false;
+        if (!valid)
+        {
+            logger.error("This ec2-enabled snitch appears to be using the {} naming scheme for regions, " +
+                         "but existing nodes in cluster are using the opposite: region(s) = {}, availability zone(s) = {}. " +
+                         "Please check the {} property in the {} configuration file for more details.",
+                         usingLegacyNaming ? "legacy" : "standard", datacenters, racks,
+                         SNITCH_PROP_NAMING_SCHEME, SnitchProperties.RACKDC_PROPERTY_FILENAME);
+        }
+
+        return valid;
     }
 }

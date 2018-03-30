@@ -66,10 +66,10 @@ public interface IEndpointSnitch
     public boolean isWorthMergingForRangeQuery(List<InetAddressAndPort> merged, List<InetAddressAndPort> l1, List<InetAddressAndPort> l2);
 
     /**
-     * Determine if the datacenter or rack values in the currently in the snitch conflict with any from the parameters.
+     * Determine if the datacenter or rack values in the current node's snitch conflict with those passed in parameters.
      */
-    default boolean hasConflictingDatacenterOrRack(Set<String> datacenters, Set<String> racks)
+    default boolean validate(Set<String> datacenters, Set<String> racks)
     {
-        return false;
+        return true;
     }
 }

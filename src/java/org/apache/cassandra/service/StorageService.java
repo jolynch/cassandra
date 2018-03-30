@@ -481,6 +481,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         if (epStates.get(replaceAddress) == null)
             throw new RuntimeException(String.format("Cannot replace_address %s because it doesn't exist in gossip", replaceAddress));
 
+        validateEndpointSnitch(epStates.values().iterator());
+
         try
         {
             VersionedValue tokensVersionedValue = epStates.get(replaceAddress).getApplicationState(ApplicationState.TOKENS);
@@ -526,6 +528,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                                                      FBUtilities.getBroadcastAddressAndPort()));
         }
 
+        validateEndpointSnitch(epStates.values().iterator());
+
         if (shouldBootstrap() && useStrictConsistency && !allowSimultaneousMoves())
         {
             for (Map.Entry<InetAddressAndPort, EndpointState> entry : epStates.entrySet())
@@ -549,13 +553,13 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         }
     }
 
-    private static void validateEndpointSnitch()
+    private static void validateEndpointSnitch(Iterator<EndpointState> endpointStates)
     {
         Set<String> datacenters = new HashSet<>();
         Set<String> racks = new HashSet<>();
-        for (Entry<InetAddressAndPort, EndpointState> entry : Gossiper.instance.getEndpointStates())
+        while (endpointStates.hasNext())
         {
-            EndpointState state = entry.getValue();
+            EndpointState state = endpointStates.next();
             VersionedValue val = state.getApplicationState(ApplicationState.DC);
             if (val != null)
                 datacenters.add(val.value);
@@ -817,7 +821,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             loadRingState();
 
             logger.info("Starting up server gossip");
-            validateEndpointSnitch();
             Gossiper.instance.register(this);
             Gossiper.instance.start(SystemKeyspace.incrementAndGetGeneration(), appStates); // needed for node-ring gathering.
             gossipActive = true;

@@ -37,6 +37,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.Uninterruptibles;
 
 import org.apache.cassandra.locator.InetAddressAndPort;
+import org.apache.cassandra.net.LatencyUsableForSnitch;
 import org.apache.cassandra.utils.CassandraVersion;
 import org.apache.cassandra.utils.Pair;
 import org.slf4j.Logger;
@@ -1016,7 +1017,12 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         {
             public boolean isLatencyForSnitch()
             {
-                return false;
+                return true;
+            }
+
+            public LatencyUsableForSnitch latencyUsableForSnitch()
+            {
+                return LatencyUsableForSnitch.MAYBE;
             }
 
             public void response(MessageIn msg)

@@ -31,6 +31,8 @@ import com.codahale.metrics.ExponentiallyDecayingReservoir;
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import com.codahale.metrics.Snapshot;
 import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.config.DatabaseDescriptor;
@@ -38,6 +40,7 @@ import org.apache.cassandra.gms.ApplicationState;
 import org.apache.cassandra.gms.EndpointState;
 import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.gms.VersionedValue;
+import org.apache.cassandra.net.LatencyUsableForSnitch;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.FBUtilities;
@@ -301,6 +304,24 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
         sample.update(latency);
     }
 
+    public void receiveTiming(InetAddressAndPort address, long latency, LatencyUsableForSnitch usable)
+    {
+        if (usable == LatencyUsableForSnitch.YES)
+        {
+            receiveTiming(address, latency);
+        }
+        // If we have no other sources of latency (e.g. due to a snitch reset or on first startup),
+        // use this timing information, otherwise do not use this information.
+        else if (usable == LatencyUsableForSnitch.MAYBE)
+        {
+            ExponentiallyDecayingReservoir sample = samples.get(address);
+            if (sample == null || sample.size() <= 1)
+            {
+                receiveTiming(address, latency);
+            }
+        }
+    }
+
     private void updateScores() // this is expensive
     {
         if (!StorageService.instance.isGossipActive())
@@ -345,9 +366,27 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
         scores = newScores;
     }
 
-    private void reset()
+    @VisibleForTesting
+    void reset()
     {
-       samples.clear();
+        reset(false);
+    }
+
+    @VisibleForTesting
+    void reset(boolean clear)
+    {
+        if (clear)
+        {
+            samples.clear();
+        }
+        else
+        {
+            samples.replaceAll((k, reservoir) -> {
+                ExponentiallyDecayingReservoir newResevoir = new ExponentiallyDecayingReservoir();
+                newResevoir.update(reservoir.getSnapshot().getMin());
+                return newResevoir;
+            });
+        }
     }
 
     public Map<InetAddress, Double> getScores()

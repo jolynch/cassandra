@@ -15,11 +15,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.cassandra.locator;
 
-import org.apache.cassandra.net.LatencyUsableForSnitch;
+package org.apache.cassandra.net;
 
-public interface ILatencySubscriber
+public enum LatencyUsableForSnitch
 {
-    public void receiveTiming(InetAddressAndPort address, long latency, LatencyUsableForSnitch usable);
+    // Do not use this latency measurement
+    NO,
+    // Use this latency measurement
+    YES,
+    // If one or fewer other measurements are available, use this. Used by healthchecks
+    // and startup checks to provide some initial latency information to the snitch
+    MAYBE
 }

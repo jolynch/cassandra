@@ -58,4 +58,13 @@ public interface DynamicEndpointSnitchMBean
      * @return the current manually injected Severity.
      */
     public double getSeverity();
+
+    /**
+     * Forces the snitch to remove all timing information
+     * @param clear If true, remove all timing information. If false allows the DynamicEndpointSnitch to
+     *              determine the best action; currently this means clearing all but the minimum. See
+     *              CASSANDRA-14459 for more information.
+     */
+    public void forceTimingReset(boolean clear);
+
 }

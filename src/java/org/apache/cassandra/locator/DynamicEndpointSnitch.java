@@ -31,6 +31,8 @@ import com.codahale.metrics.ExponentiallyDecayingReservoir;
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import com.codahale.metrics.Snapshot;
 import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.config.DatabaseDescriptor;
@@ -38,6 +40,7 @@ import org.apache.cassandra.gms.ApplicationState;
 import org.apache.cassandra.gms.EndpointState;
 import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.gms.VersionedValue;
+import org.apache.cassandra.net.LatencyUsableForSnitch;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.FBUtilities;
@@ -99,7 +102,7 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
             {
                 // we do this so that a host considered bad has a chance to recover, otherwise would we never try
                 // to read from it, which would cause its score to never change
-                reset();
+                reset(false);
             }
         };
 
@@ -288,7 +291,7 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
         throw new UnsupportedOperationException("You shouldn't wrap the DynamicEndpointSnitch (within itself or otherwise)");
     }
 
-    public void receiveTiming(InetAddressAndPort host, long latency) // this is cheap
+    void receiveTiming(InetAddressAndPort host, long latency) // this is cheap
     {
         ExponentiallyDecayingReservoir sample = samples.get(host);
         if (sample == null)
@@ -299,6 +302,24 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
                 sample = maybeNewSample;
         }
         sample.update(latency);
+    }
+
+    public void receiveTiming(InetAddressAndPort address, long latency, LatencyUsableForSnitch usable)
+    {
+        if (usable == LatencyUsableForSnitch.YES)
+        {
+            receiveTiming(address, latency);
+        }
+        // If we have little additional latency data (e.g. due to a snitch reset or on first startup),
+        // use this timing information, otherwise do not use this information.
+        else if (usable == LatencyUsableForSnitch.MAYBE)
+        {
+            ExponentiallyDecayingReservoir sample = samples.get(address);
+            if (sample == null || sample.size() <= 1)
+            {
+                receiveTiming(address, latency);
+            }
+        }
     }
 
     private void updateScores() // this is expensive
@@ -345,9 +366,35 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
         scores = newScores;
     }
 
-    private void reset()
+    @VisibleForTesting
+    void reset(boolean clear)
     {
-       samples.clear();
+        if (clear)
+        {
+            samples.clear();
+        }
+        else
+        {
+            samples.replaceAll((host, reservoir) -> {
+                ExponentiallyDecayingReservoir newResevoir = new ExponentiallyDecayingReservoir(WINDOW_SIZE, ALPHA);
+                Snapshot snapshot = reservoir.getSnapshot();
+                // If we have a reasonable number of data points reset to the minimum observed latency
+                // (essentially the RTT). If there is a host, however, that at one point had a low RTT but now has a
+                // very high RTT we detect this by the existence of only two measurements (the old fast value and
+                // the new slow value) and instead of resetting to the minimum we reset to the mean of those two
+                // values instead. Over time the measurement converges to the hosts new RTT (this also works once
+                // it gets fast again).
+                if (snapshot.size() > 2 )
+                {
+                    newResevoir.update(snapshot.getMin());
+                }
+                else
+                {
+                    newResevoir.update((long)(snapshot.getMean()));
+                }
+                return newResevoir;
+            });
+        }
     }
 
     public Map<InetAddress, Double> getScores()
@@ -412,6 +459,12 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
     public double getSeverity()
     {
         return getSeverity(FBUtilities.getBroadcastAddressAndPort());
+    }
+
+    @Override
+    public void forceTimingReset(boolean clear)
+    {
+        reset(clear);
     }
 
     public boolean isWorthMergingForRangeQuery(List<InetAddressAndPort> merged, List<InetAddressAndPort> l1, List<InetAddressAndPort> l2)

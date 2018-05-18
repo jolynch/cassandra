@@ -37,6 +37,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.Uninterruptibles;
 
 import org.apache.cassandra.locator.InetAddressAndPort;
+import org.apache.cassandra.net.LatencyUsableForSnitch;
 import org.apache.cassandra.utils.CassandraVersion;
 import org.apache.cassandra.utils.Pair;
 import org.slf4j.Logger;
@@ -686,7 +687,21 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
             logger.trace("Sending a GossipDigestSyn to {} ...", to);
         if (firstSynSendAt == 0)
             firstSynSendAt = System.nanoTime();
+
         MessagingService.instance().sendOneWay(message, to);
+
+        // Probe the minimum latency. This latency will only be counted if we lack data about the node
+        // We can't use the syn message above because it doesn't send a reply (it sends back a different message)
+        IAsyncCallback echoHandler = new IAsyncCallback()
+        {
+            public boolean isLatencyForSnitch() { return true; }
+            public LatencyUsableForSnitch latencyUsableForSnitch() { return LatencyUsableForSnitch.MAYBE; }
+            public void response(MessageIn msg) { }
+        };
+        MessageOut<EchoMessage> echoMessage = new MessageOut<>(MessagingService.Verb.ECHO, EchoMessage.instance, EchoMessage.serializer);
+        logger.trace("Sending an EchoMessage to {} ...", to);
+        MessagingService.instance().sendRR(echoMessage, to, echoHandler);
+
         return seeds.contains(to);
     }
 
@@ -1016,7 +1031,12 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
         {
             public boolean isLatencyForSnitch()
             {
-                return false;
+                return true;
+            }
+
+            public LatencyUsableForSnitch latencyUsableForSnitch()
+            {
+                return LatencyUsableForSnitch.MAYBE;
             }
 
             public void response(MessageIn msg)

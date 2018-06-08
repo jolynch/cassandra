@@ -33,6 +33,9 @@ import javax.management.ObjectName;
 
 import com.google.common.annotations.VisibleForTesting;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.codahale.metrics.Snapshot;
 import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.config.DatabaseDescriptor;
@@ -40,10 +43,17 @@ import org.apache.cassandra.gms.ApplicationState;
 import org.apache.cassandra.gms.EndpointState;
 import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.gms.VersionedValue;
+import org.apache.cassandra.net.IAsyncCallback;
 import org.apache.cassandra.net.LatencyUsableForSnitch;
+import org.apache.cassandra.net.MessageIn;
+import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.net.PingMessage;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.FBUtilities;
+
+import static org.apache.cassandra.net.MessagingService.Verb.PING;
+import static org.apache.cassandra.net.async.OutboundConnectionIdentifier.ConnectionType.SMALL_MESSAGE;
 
 
 /**
@@ -51,6 +61,8 @@ import org.apache.cassandra.utils.FBUtilities;
  */
 public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILatencySubscriber, DynamicEndpointSnitchMBean
 {
+    private static final Logger logger = LoggerFactory.getLogger(Gossiper.class);
+
     private static final boolean USE_SEVERITY = !Boolean.getBoolean("cassandra.ignore_dynamic_snitch_severity");
 
     private static final double ALPHA = 0.75; // set to 0.75 to make EDS more biased to towards the newer values
@@ -75,6 +87,7 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
     private volatile ScheduledFuture<?> updateSchedular;
     private volatile ScheduledFuture<?> resetSchedular;
 
+
     private final Runnable update;
     private final Runnable reset;
 
@@ -89,22 +102,10 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
         if (instance != null)
             mbeanName += ",instance=" + instance;
         subsnitch = snitch;
-        update = new Runnable()
-        {
-            public void run()
-            {
-                updateScores();
-            }
-        };
-        reset = new Runnable()
-        {
-            public void run()
-            {
-                // we do this so that a host considered bad has a chance to recover, otherwise would we never try
-                // to read from it, which would cause its score to never change
-                reset(false);
-            }
-        };
+        update = () -> updateScores();
+        // we do this so that a host considered bad has a chance to recover, otherwise would we never try
+        // to read from it, which would cause its score to never change
+        reset = () -> reset(false);
 
         if (DatabaseDescriptor.isDaemonInitialized())
         {
@@ -375,26 +376,54 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
         }
         else
         {
+            // We have to prune nodes that are no longer part of the cluster
+            Set<InetAddressAndPort> needsRemoval = samples.keySet().stream()
+                   .filter(host -> Gossiper.instance.getEndpointStateForEndpoint(host) == null)
+                   .collect(Collectors.toSet());
+            samples.keySet().removeAll(needsRemoval);
+
+            Set<InetAddressAndPort> needsLatencyProbe = new HashSet<>();
             samples.replaceAll((host, reservoir) -> {
                 ExponentiallyDecayingReservoir newResevoir = new ExponentiallyDecayingReservoir(WINDOW_SIZE, ALPHA);
                 Snapshot snapshot = reservoir.getSnapshot();
                 // If we have a reasonable number of data points reset to the minimum observed latency
-                // (essentially the RTT). If there is a host, however, that at one point had a low RTT but now has a
-                // very high RTT we detect this by the existence of only two measurements (the old fast value and
-                // the new slow value) and instead of resetting to the minimum we reset to the mean of those two
-                // values instead. Over time the measurement converges to the hosts new RTT (this also works once
-                // it gets fast again).
+                // (essentially the RTT). This gives replicas that were temporarily slow a chance to get
+                // traffic again.
                 if (snapshot.size() > 2 )
                 {
                     newResevoir.update(snapshot.getMin());
                 }
+                // If we don't have enough datapoints, reset to the mean and send latency probes so that over
+                // time the measurement converges to the hosts new RTT. We do this when there are two datapoints
+                // or fewer so that nodes with single datapoints get latency probes and nodes with two datapoints
+                // converge to the real RTT.
                 else
                 {
                     newResevoir.update((long)(snapshot.getMean()));
+                    needsLatencyProbe.add(host);
                 }
                 return newResevoir;
             });
+
+            if (needsLatencyProbe.size() > 0)
+                sendLatencyProbes(needsLatencyProbe);
         }
+    }
+
+    private void sendLatencyProbes(Set<InetAddressAndPort> hosts)
+    {
+        logger.trace("Sending latency probes to {}", hosts);
+        // Probe the minimum latency. This latency will only be counted if we lack data about the node
+        IAsyncCallback latencyProbeHandler = new IAsyncCallback()
+        {
+            public boolean isLatencyForSnitch() { return true; }
+            public LatencyUsableForSnitch latencyUsableForSnitch() { return LatencyUsableForSnitch.MAYBE; }
+            public void response(MessageIn msg) { }
+        };
+
+        MessageOut<PingMessage> latencyProbe = new MessageOut<>(PING, PingMessage.smallChannelMessage,
+                                                                PingMessage.serializer, SMALL_MESSAGE);
+        hosts.forEach(host -> MessagingService.instance().sendRR(latencyProbe, host, latencyProbeHandler));
     }
 
     public Map<InetAddress, Double> getScores()

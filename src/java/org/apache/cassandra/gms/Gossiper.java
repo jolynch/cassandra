@@ -690,18 +690,6 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
 
         MessagingService.instance().sendOneWay(message, to);
 
-        // Probe the minimum latency. This latency will only be counted if we lack data about the node
-        // We can't use the syn message above because it doesn't send a reply (it sends back a different message)
-        IAsyncCallback echoHandler = new IAsyncCallback()
-        {
-            public boolean isLatencyForSnitch() { return true; }
-            public LatencyUsableForSnitch latencyUsableForSnitch() { return LatencyUsableForSnitch.MAYBE; }
-            public void response(MessageIn msg) { }
-        };
-        MessageOut<EchoMessage> echoMessage = new MessageOut<>(MessagingService.Verb.ECHO, EchoMessage.instance, EchoMessage.serializer);
-        logger.trace("Sending an EchoMessage to {} ...", to);
-        MessagingService.instance().sendRR(echoMessage, to, echoHandler);
-
         return seeds.contains(to);
     }
 

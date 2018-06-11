@@ -38,6 +38,7 @@ import com.google.common.util.concurrent.Uninterruptibles;
 
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.net.LatencyUsableForSnitch;
+import org.apache.cassandra.net.PingMessage;
 import org.apache.cassandra.utils.CassandraVersion;
 import org.apache.cassandra.utils.Pair;
 import org.slf4j.Logger;
@@ -56,6 +57,9 @@ import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.JVMStabilityInspector;
+
+import static org.apache.cassandra.net.MessagingService.Verb.PING;
+import static org.apache.cassandra.net.async.OutboundConnectionIdentifier.ConnectionType.SMALL_MESSAGE;
 
 /**
  * This module is responsible for Gossiping information for the local endpoint. This abstraction
@@ -689,6 +693,20 @@ public class Gossiper implements IFailureDetectionEventListener, GossiperMBean
             firstSynSendAt = System.nanoTime();
 
         MessagingService.instance().sendOneWay(message, to);
+
+        if (MessagingService.instance().needsLatencyMeasurement(to))
+        {
+            MessageOut<PingMessage> latencyProbe = new MessageOut<>(PING, PingMessage.smallChannelMessage,
+                                                                    PingMessage.serializer, SMALL_MESSAGE);
+            logger.trace("Sending a PingMessage to {}", to);
+            IAsyncCallback latencyProbeHandler = new IAsyncCallback()
+            {
+                public boolean isLatencyForSnitch() { return true; }
+                public LatencyUsableForSnitch latencyUsableForSnitch() { return LatencyUsableForSnitch.MAYBE; }
+                public void response(MessageIn msg) { }
+            };
+            MessagingService.instance().sendRR(latencyProbe, to, latencyProbeHandler);
+        }
 
         return seeds.contains(to);
     }

@@ -594,7 +594,7 @@ public final class MessagingService implements MessagingServiceMBean
                         @Override
                         public void run()
                         {
-                            ((IAsyncCallbackWithFailure)expiredCallbackInfo.callback).onFailure(expiredCallbackInfo.target, RequestFailureReason.UNKNOWN);
+                            ((IAsyncCallbackWithFailure) expiredCallbackInfo.callback).onFailure(expiredCallbackInfo.target, RequestFailureReason.UNKNOWN);
                         }
                     });
                 }
@@ -643,9 +643,9 @@ public final class MessagingService implements MessagingServiceMBean
     /**
      * Updates the back-pressure state on sending to the given host if enabled and the given message callback supports it.
      *
-     * @param host The replica host the back-pressure state refers to.
+     * @param host     The replica host the back-pressure state refers to.
      * @param callback The message callback.
-     * @param message The actual message.
+     * @param message  The actual message.
      */
     public void updateBackPressureOnSend(InetAddressAndPort host, IAsyncCallback callback, MessageOut<?> message)
     {
@@ -660,9 +660,9 @@ public final class MessagingService implements MessagingServiceMBean
     /**
      * Updates the back-pressure state on reception from the given host if enabled and the given message callback supports it.
      *
-     * @param host The replica host the back-pressure state refers to.
+     * @param host     The replica host the back-pressure state refers to.
      * @param callback The message callback.
-     * @param timeout True if updated following a timeout, false otherwise.
+     * @param timeout  True if updated following a timeout, false otherwise.
      */
     public void updateBackPressureOnReceive(InetAddressAndPort host, IAsyncCallback callback, boolean timeout)
     {
@@ -684,7 +684,7 @@ public final class MessagingService implements MessagingServiceMBean
      * If the local host is present, it is removed from the pool, as back-pressure is only applied
      * to remote hosts.
      *
-     * @param hosts The hosts to apply back-pressure to.
+     * @param hosts          The hosts to apply back-pressure to.
      * @param timeoutInNanos The max back-pressure timeout.
      */
     public void applyBackPressure(Iterable<InetAddressAndPort> hosts, long timeoutInNanos)
@@ -735,10 +735,21 @@ public final class MessagingService implements MessagingServiceMBean
         addLatency(address, latency, LatencyUsableForSnitch.YES);
     }
 
-    private void addLatency(InetAddressAndPort address, long latency, LatencyUsableForSnitch usable) {
+    private void addLatency(InetAddressAndPort address, long latency, LatencyUsableForSnitch usable)
+    {
         for (ILatencySubscriber subscriber : subscribers)
             subscriber.receiveTiming(address, latency, usable);
     }
+
+    /**
+     * called from gossiper to check if it needs to send some active latency probes for latency
+     * measurement purposes. Under real world traffic this almost always returns false.
+     */
+    public boolean needsLatencyMeasurement(InetAddressAndPort address)
+    {
+        return subscribers.stream().anyMatch(s -> s.needsTiming(address));
+    }
+
 
     /**
      * called from gossiper when it notices a node is not responding.

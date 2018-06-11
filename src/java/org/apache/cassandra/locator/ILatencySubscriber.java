@@ -22,4 +22,5 @@ import org.apache.cassandra.net.LatencyUsableForSnitch;
 public interface ILatencySubscriber
 {
     public void receiveTiming(InetAddressAndPort address, long latency, LatencyUsableForSnitch usable);
+    public boolean needsTiming(InetAddressAndPort address);
 }

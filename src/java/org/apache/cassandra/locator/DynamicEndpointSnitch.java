@@ -27,7 +27,6 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-import com.codahale.metrics.ExponentiallyDecayingReservoir;
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
 
@@ -36,7 +35,6 @@ import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.codahale.metrics.Snapshot;
 import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.gms.ApplicationState;
@@ -44,6 +42,7 @@ import org.apache.cassandra.gms.EndpointState;
 import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.gms.VersionedValue;
 import org.apache.cassandra.net.IAsyncCallback;
+import org.apache.cassandra.metrics.ExponentialMovingAverage;
 import org.apache.cassandra.net.LatencyUsableForSnitch;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessageOut;
@@ -65,8 +64,8 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
 
     private static final boolean USE_SEVERITY = !Boolean.getBoolean("cassandra.ignore_dynamic_snitch_severity");
 
-    private static final double ALPHA = 0.75; // set to 0.75 to make EDS more biased to towards the newer values
-    private static final int WINDOW_SIZE = 100;
+    // A ~10 sample EMA
+    private static final double EMA_ALPHA = 0.10;
 
     private volatile int dynamicUpdateInterval = DatabaseDescriptor.getDynamicUpdateInterval();
     private volatile int dynamicResetInterval = DatabaseDescriptor.getDynamicResetInterval();
@@ -81,9 +80,8 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
     private boolean registered = false;
 
     private volatile HashMap<InetAddressAndPort, Double> scores = new HashMap<>();
-    private final ConcurrentHashMap<InetAddressAndPort, ExponentiallyDecayingReservoir> samples = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<InetAddressAndPort, ExponentialMovingAverage> samples = new ConcurrentHashMap<>();
     private final Set<InetAddressAndPort> needsLatencyProbe = ConcurrentHashMap.newKeySet();
-
 
     public final IEndpointSnitch subsnitch;
 
@@ -107,7 +105,7 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
             mbeanName += ",instance=" + instance;
         subsnitch = snitch;
         update = this::updateScores;
-        // we do this so that a host considered bad has a chance to recover, otherwise would we never try
+        // we do this so that a host considered bad has a chance to recover, otherwise we would never try
         // to read from it, which would cause its score to never change
         reset = () -> reset(false);
         latencyPing = this::sendLatencyPing;
@@ -234,7 +232,7 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
         // its comparator to be "stable", that is 2 endpoint should compare the same way for the duration
         // of the sort() call. As we copy the scores map on write, it is thus enough to alias the current
         // version of it during this call.
-        final HashMap<InetAddressAndPort, Double> scores = this.scores;
+        HashMap<InetAddressAndPort, Double> scores = this.scores;
         Collections.sort(addresses, new Comparator<InetAddressAndPort>()
         {
             public int compare(InetAddressAndPort a1, InetAddressAndPort a2)
@@ -250,8 +248,9 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
             return;
 
         subsnitch.sortByProximity(address, addresses);
-        HashMap<InetAddressAndPort, Double> scores = this.scores; // Make sure the score don't change in the middle of the loop below
-                                                           // (which wouldn't really matter here but its cleaner that way).
+        // Make sure the score don't change in the middle of the loop below
+        // (which wouldn't really matter here but its cleaner that way).
+        HashMap<InetAddressAndPort, Double> scores = this.scores;
         ArrayList<Double> subsnitchOrderedScores = new ArrayList<>(addresses.size());
         for (InetAddressAndPort inet : addresses)
         {
@@ -312,10 +311,10 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
 
     void receiveTiming(InetAddressAndPort host, long latency) // this is cheap
     {
-        ExponentiallyDecayingReservoir sample = samples.get(host);
+        ExponentialMovingAverage sample = samples.get(host);
         if (sample == null)
         {
-            ExponentiallyDecayingReservoir maybeNewSample = new ExponentiallyDecayingReservoir(WINDOW_SIZE, ALPHA);
+            ExponentialMovingAverage maybeNewSample = new ExponentialMovingAverage(EMA_ALPHA, latency);
             sample = samples.putIfAbsent(host, maybeNewSample);
             if (sample == null)
                 sample = maybeNewSample;
@@ -333,8 +332,8 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
         // use this timing information, otherwise do not use this information.
         else if (usable == LatencyUsableForSnitch.MAYBE)
         {
-            ExponentiallyDecayingReservoir sample = samples.get(address);
-            if (sample == null || sample.size() <= 1)
+            ExponentialMovingAverage sample = samples.get(address);
+            if (sample == null || needsLatencyProbe.contains(address))
             {
                 receiveTiming(address, latency);
             }
@@ -361,69 +360,64 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
             }
 
         }
-        double maxLatency = 1;
-
-        Map<InetAddressAndPort, Snapshot> snapshots = new HashMap<>(samples.size());
-        for (Map.Entry<InetAddressAndPort, ExponentiallyDecayingReservoir> entry : samples.entrySet())
-        {
-            snapshots.put(entry.getKey(), entry.getValue().getSnapshot());
-        }
 
         // We're going to weight the latency for each host against the worst one we see, to
         // arrive at sort of a 'badness percentage' for them. First, find the worst for each:
-        HashMap<InetAddressAndPort, Double> newScores = new HashMap<>();
-        for (Map.Entry<InetAddressAndPort, Snapshot> entry : snapshots.entrySet())
-        {
-            double mean = entry.getValue().getMedian();
-            if (mean > maxLatency)
-                maxLatency = mean;
-        }
+        HashMap<InetAddressAndPort, Double> newScores = new HashMap<>(samples.size());
+        Optional<Double> maxObservedAvgLatency = samples.values().stream()
+            .map(ExponentialMovingAverage::getAvg)
+            .max(Double::compare);
+
+        final double maxAvgLatency = maxObservedAvgLatency.isPresent() ? maxObservedAvgLatency.get() : 1;
+
         // now make another pass to do the weighting based on the maximums we found before
-        for (Map.Entry<InetAddressAndPort, Snapshot> entry : snapshots.entrySet())
-        {
-            double score = entry.getValue().getMedian() / maxLatency;
-            // finally, add the severity without any weighting, since hosts scale this relative to their own load and the size of the task causing the severity.
+        samples.forEach((addr, sample) -> {
+            // Samples may have changed but rather than creating garbage by copying samples we just ensure
+            // that all scores are less than 1.0
+            double addrAvg = sample.getAvg();
+            double score = addrAvg / Math.max(addrAvg, maxAvgLatency);
+            // finally, add the severity without any weighting, since hosts scale this relative to their own load
+            // and the size of the task causing the severity.
             // "Severity" is basically a measure of compaction activity (CASSANDRA-3722).
             if (USE_SEVERITY)
-                score += getSeverity(entry.getKey());
+                score += getSeverity(addr);
             // lowest score (least amount of badness) wins.
-            newScores.put(entry.getKey(), score);
-        }
-        scores = newScores;
+            newScores.put(addr, score);
+        });
+        this.scores = newScores;
     }
 
     @VisibleForTesting
     void reset(boolean clear)
     {
+        needsLatencyProbe.clear();
+
         if (clear)
         {
             samples.clear();
         }
         else
         {
+            // We have to prune nodes that are no longer part of the cluster
             samples.keySet().retainAll(Gossiper.instance.getLiveMembers());
-            needsLatencyProbe.clear();
 
-            samples.replaceAll((host, reservoir) -> {
-                ExponentiallyDecayingReservoir newResevoir = new ExponentiallyDecayingReservoir(WINDOW_SIZE, ALPHA);
-                Snapshot oldResevoir = reservoir.getSnapshot();
-                // If we have a reasonable number of data points reset to the minimum observed latency
-                // (essentially the RTT). This gives replicas that were temporarily slow a chance to get
-                // traffic again.
-                if (oldResevoir.size() > 2 )
+            // Request latency probes will be sent for nodes with little or no information
+
+            samples.forEach((addr, sample) -> {
+                if (sample.getCount() < 2)
                 {
-                    newResevoir.update(oldResevoir.getMin());
+                    // For nodes with few latency measurements, reset to average observed value
+                    // This typically means that this addr is slow and therefore should be de-prefered and
+                    // interacted with only through latency probes, speculations, or high consistency requests
+                    sample.updateParameter(EMA_ALPHA, sample.getAvg());
+                    needsLatencyProbe.add(addr);
                 }
-                // If we don't have enough datapoints, reset to the mean and ask for latency probes so that over
-                // time the measurement converges to the hosts new RTT. We do this when there are two datapoints
-                // or fewer so that nodes with single datapoints get latency probes and nodes with two datapoints
-                // converge to the real RTT.
                 else
                 {
-                    newResevoir.update((long)(oldResevoir.getMean()));
-                    needsLatencyProbe.add(host);
+                    // For nodes with reasonable amounts of data, reset to the minimum observed latency to give
+                    // other replicas a chance to service reads in general.
+                    sample.updateParameter(EMA_ALPHA, sample.getMinimum());
                 }
-                return newResevoir;
             });
         }
     }
@@ -486,12 +480,25 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
     public List<Double> dumpTimings(String hostname) throws UnknownHostException
     {
         InetAddressAndPort host = InetAddressAndPort.getByName(hostname);
-        ArrayList<Double> timings = new ArrayList<Double>();
-        ExponentiallyDecayingReservoir sample = samples.get(host);
-        if (sample != null)
+        ArrayList<Double> timings = new ArrayList<>();
+        ExponentialMovingAverage avg = samples.get(host);
+        if (avg != null)
         {
-            for (double time: sample.getSnapshot().getValues())
-                timings.add(time);
+            timings.add(avg.getAvg());
+        }
+        return timings;
+    }
+
+    public List<Double> dumpTimingInfo(String hostname) throws UnknownHostException
+    {
+        InetAddressAndPort host = InetAddressAndPort.getByName(hostname);
+        ArrayList<Double> timings = new ArrayList<>();
+        ExponentialMovingAverage avg = samples.get(host);
+        if (avg != null)
+        {
+            timings.add(avg.getMinimum());
+            timings.add(avg.getAvg());
+            timings.add((double)avg.getCount());
         }
         return timings;
     }

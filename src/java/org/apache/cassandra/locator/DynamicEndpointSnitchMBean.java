@@ -32,7 +32,22 @@ public interface DynamicEndpointSnitchMBean
     public int getLatencyPingInterval();
     public double getBadnessThreshold();
     public String getSubsnitchClassName();
+
+    /**
+     * Returns the raw latency information from the snitch. As the DES no longer used a resevoir
+     * based approach this method just returns the average latency and is pretty useless
+     * See {@link #dumpTimingInfo(String)} instead
+     * @param hostname
+     * @return
+     * @throws UnknownHostException
+     */
+    @Deprecated
     public List<Double> dumpTimings(String hostname) throws UnknownHostException;
+
+    /**
+     * Returns the DynamicEndpointSnith's observed latency (min, avg, count) for a given hostname
+     */
+    public List<Double> dumpTimingInfo(String hostname) throws UnknownHostException;
 
     /**
      * Setting a Severity allows operators to inject preference information into the Dynamic Snitch

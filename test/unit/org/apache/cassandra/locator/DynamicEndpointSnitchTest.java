@@ -59,7 +59,6 @@ public class DynamicEndpointSnitchTest
             InetAddressAndPort.getByName("127.0.0.5"),
         };
 
-
         dsnitch = new DynamicEndpointSnitch(ss, String.valueOf(ss.hashCode()));
     }
 
@@ -103,22 +102,22 @@ public class DynamicEndpointSnitchTest
         assertEquals(order, dsnitch.getSortedListByProximity(self, Arrays.asList(hosts[1], hosts[2], hosts[3])));
 
         // make hosts[1] a little worse
-        setScores(dsnitch, 1, allHosts, 20, 10, 10);
+        setScores(dsnitch, 3, allHosts, 20, 10, 10);
         order = Arrays.asList(hosts[2], hosts[3], hosts[1]);
         assertEquals(order, dsnitch.getSortedListByProximity(self, Arrays.asList(hosts[1], hosts[2], hosts[3])));
 
         // make hosts[2] as bad as hosts[1]
-        setScores(dsnitch, 2, allHosts, 15, 20, 10);
+        setScores(dsnitch, 5, allHosts, 15, 20, 10);
         order = Arrays.asList(hosts[3], hosts[1], hosts[2]);
         assertEquals(order, dsnitch.getSortedListByProximity(self, Arrays.asList(hosts[1], hosts[2], hosts[3])));
 
         // make hosts[3] the worst
-        setScores(dsnitch, 3, allHosts, 10, 10, 30);
+        setScores(dsnitch, 5, allHosts, 10, 10, 30);
         order = Arrays.asList(hosts[1], hosts[2], hosts[3]);
         assertEquals(order, dsnitch.getSortedListByProximity(self, Arrays.asList(hosts[1], hosts[2], hosts[3])));
 
         // make hosts[3] equal to the others
-        setScores(dsnitch, 5, allHosts, 10, 10, 10);
+        setScores(dsnitch, 10, allHosts, 10, 10, 10);
         order = Arrays.asList(hosts[1], hosts[2], hosts[3]);
         assertEquals(order, dsnitch.getSortedListByProximity(self, Arrays.asList(hosts[1], hosts[2], hosts[3])));
 
@@ -132,7 +131,7 @@ public class DynamicEndpointSnitchTest
         order = Arrays.asList(hosts[4], hosts[1], hosts[3], hosts[2]);
         assertEquals(order, dsnitch.getSortedListByProximity(self, Arrays.asList(hosts[1], hosts[2], hosts[3], hosts[4])));
 
-        setScores(dsnitch, 20, allHosts, 10, 10, 10);
+        setScores(dsnitch, 40, allHosts, 10, 10, 11);
         order = Arrays.asList(hosts[4], hosts[1], hosts[2], hosts[3]);
         assertEquals(order, dsnitch.getSortedListByProximity(self, Arrays.asList(hosts[1], hosts[2], hosts[3], hosts[4])));
 
@@ -174,49 +173,51 @@ public class DynamicEndpointSnitchTest
         dsnitch.receiveTiming(hosts[1], 2, LatencyUsableForSnitch.YES);
         dsnitch.receiveTiming(hosts[1], 3, LatencyUsableForSnitch.YES);
         dsnitch.receiveTiming(hosts[1], 4, LatencyUsableForSnitch.MAYBE);
-        timings = dsnitch.dumpTimings(hosts[1].getHostAddress(false));
-        Collections.sort(timings);
-        assertEquals(Arrays.asList(2.0, 3.0), timings);
+        timings = dsnitch.dumpTimingInfo(hosts[1].getHostAddress(false));
+        assertEquals(2.1, timings.get(1), 0.01);
+        assertEquals(2.0, timings.get(2), 0.01);
 
         dsnitch.reset(true);
-
         dsnitch.receiveTiming(hosts[1], 1, LatencyUsableForSnitch.MAYBE);
         dsnitch.receiveTiming(hosts[1], 2, LatencyUsableForSnitch.MAYBE);
         dsnitch.receiveTiming(hosts[1], 3, LatencyUsableForSnitch.YES);
         dsnitch.receiveTiming(hosts[1], 4, LatencyUsableForSnitch.MAYBE);
-        timings = dsnitch.dumpTimings(hosts[1].getHostAddress(false));
-        Collections.sort(timings);
-        assertEquals(Arrays.asList(1.0, 2.0, 3.0), timings);
+        timings = dsnitch.dumpTimingInfo(hosts[1].getHostAddress(false));
+        assertEquals(1.2, timings.get(1), 0.01);
+        assertEquals(2.0, timings.get(2), 0.01);
 
         dsnitch.reset(true);
         dsnitch.receiveTiming(hosts[1], 1, LatencyUsableForSnitch.YES);
         dsnitch.receiveTiming(hosts[1], 2, LatencyUsableForSnitch.YES);
         dsnitch.receiveTiming(hosts[1], 3, LatencyUsableForSnitch.MAYBE);
         dsnitch.receiveTiming(hosts[1], 4, LatencyUsableForSnitch.MAYBE);
-        timings = dsnitch.dumpTimings(hosts[1].getHostAddress(false));
-        Collections.sort(timings);
-        assertEquals(Arrays.asList(1.0, 2.0), timings);
+        timings = dsnitch.dumpTimingInfo(hosts[1].getHostAddress(false));
+        assertEquals(1.1, timings.get(1), 0.01);
+        assertEquals(2.0, timings.get(2), 0.01);
 
         // Once a single MAYBE comes in, we should stop needing latency measurements
+        dsnitch.reset(true);
+        dsnitch.receiveTiming(hosts[1], 1, LatencyUsableForSnitch.YES);
         dsnitch.reset(false);
         assertTrue(dsnitch.needsTiming(hosts[1]));
         dsnitch.receiveTiming(hosts[1], 1, LatencyUsableForSnitch.MAYBE);
         assertFalse(dsnitch.needsTiming(hosts[1]));
         dsnitch.receiveTiming(hosts[1], 2, LatencyUsableForSnitch.MAYBE);
-        timings = dsnitch.dumpTimings(hosts[1].getHostAddress(false));
-        Collections.sort(timings);
-        assertEquals(Arrays.asList(1.0, 1.0), timings);
+        timings = dsnitch.dumpTimingInfo(hosts[1].getHostAddress(false));
+        assertEquals(1, timings.get(1), 0.01);
     }
 
     @Test
     public void testReset() throws IOException, ConfigurationException
     {
+        List<Double> timingInfo;
         dsnitch.receiveTiming(hosts[1], 0);
         dsnitch.receiveTiming(hosts[1], 2);
         dsnitch.receiveTiming(hosts[1], 2);
         dsnitch.receiveTiming(hosts[2], 10);
         dsnitch.reset(false);
-        assertEquals(Arrays.asList(0.0), dsnitch.dumpTimings(hosts[1].getHostAddress(false)));
+        assertEquals(0, dsnitch.dumpTimingInfo(hosts[1].getHostAddress(false)).get(1), 0.01);
+        assertEquals(10, dsnitch.dumpTimingInfo(hosts[2].getHostAddress(false)).get(1), 0.01);
         assertTrue(dsnitch.needsTiming(hosts[2]));
         assertFalse(dsnitch.needsTiming(hosts[1]));
 
@@ -225,11 +226,20 @@ public class DynamicEndpointSnitchTest
 
         dsnitch.receiveTiming(hosts[1], 100);
         dsnitch.reset(false);
-        assertEquals(Arrays.asList(50.0), dsnitch.dumpTimings(hosts[1].getHostAddress(false)));
+        timingInfo = dsnitch.dumpTimingInfo(hosts[1].getHostAddress(false));
+        assertEquals(10, timingInfo.get(1), 0.01);
 
         dsnitch.receiveTiming(hosts[1], 100);
         dsnitch.reset(false);
-        assertEquals(Arrays.asList(75.0), dsnitch.dumpTimings(hosts[1].getHostAddress(false)));
+        timingInfo = dsnitch.dumpTimingInfo(hosts[1].getHostAddress(false));
+        assertEquals(19, timingInfo.get(1), 0.01);
+        assertTrue(dsnitch.needsTiming(hosts[1]));
+        assertTrue(dsnitch.needsTiming(hosts[2]));
+
+        dsnitch.receiveTiming(hosts[1], 100);
+        dsnitch.reset(false);
+        timingInfo = dsnitch.dumpTimingInfo(hosts[1].getHostAddress(false));
+        assertEquals(27.1, timingInfo.get(1), 0.01);
         assertTrue(dsnitch.needsTiming(hosts[1]));
         assertTrue(dsnitch.needsTiming(hosts[2]));
 

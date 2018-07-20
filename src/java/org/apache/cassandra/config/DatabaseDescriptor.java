@@ -2016,6 +2016,15 @@ public class DatabaseDescriptor
         conf.dynamic_snitch_reset_interval_in_ms = dynamicResetInterval;
     }
 
+    public static int getDynamicLatencyPingInterval()
+    {
+        return conf.dynamic_snitch_latency_ping_interval_in_ms;
+    }
+    public static void setDynamicLatencyPingInterval(int latencyPingInterval)
+    {
+        conf.dynamic_snitch_latency_ping_interval_in_ms = latencyPingInterval;
+    }
+
     public static double getDynamicBadnessThreshold()
     {
         return conf.dynamic_snitch_badness_threshold;

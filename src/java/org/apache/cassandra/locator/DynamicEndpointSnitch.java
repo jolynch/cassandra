@@ -33,6 +33,9 @@ import javax.management.ObjectName;
 
 import com.google.common.annotations.VisibleForTesting;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.codahale.metrics.Snapshot;
 import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.config.DatabaseDescriptor;
@@ -40,10 +43,17 @@ import org.apache.cassandra.gms.ApplicationState;
 import org.apache.cassandra.gms.EndpointState;
 import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.gms.VersionedValue;
+import org.apache.cassandra.net.IAsyncCallback;
 import org.apache.cassandra.net.LatencyUsableForSnitch;
+import org.apache.cassandra.net.MessageIn;
+import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.net.PingMessage;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.FBUtilities;
+
+import static org.apache.cassandra.net.MessagingService.Verb.PING;
+import static org.apache.cassandra.net.async.OutboundConnectionIdentifier.ConnectionType.SMALL_MESSAGE;
 
 
 /**
@@ -51,6 +61,8 @@ import org.apache.cassandra.utils.FBUtilities;
  */
 public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILatencySubscriber, DynamicEndpointSnitchMBean
 {
+    private static final Logger logger = LoggerFactory.getLogger(DynamicEndpointSnitch.class);
+
     private static final boolean USE_SEVERITY = !Boolean.getBoolean("cassandra.ignore_dynamic_snitch_severity");
 
     private static final double ALPHA = 0.75; // set to 0.75 to make EDS more biased to towards the newer values
@@ -58,6 +70,7 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
 
     private volatile int dynamicUpdateInterval = DatabaseDescriptor.getDynamicUpdateInterval();
     private volatile int dynamicResetInterval = DatabaseDescriptor.getDynamicResetInterval();
+    private volatile int dynamicLatencyPingInterval = DatabaseDescriptor.getDynamicLatencyPingInterval();
     private volatile double dynamicBadnessThreshold = DatabaseDescriptor.getDynamicBadnessThreshold();
 
     // the score for a merged set of endpoints must be this much worse than the score for separate endpoints to
@@ -76,10 +89,11 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
 
     private volatile ScheduledFuture<?> updateSchedular;
     private volatile ScheduledFuture<?> resetSchedular;
-
+    private volatile ScheduledFuture<?> latencyPingSchedular;
 
     private final Runnable update;
     private final Runnable reset;
+    private final Runnable latencyPing;
 
     public DynamicEndpointSnitch(IEndpointSnitch snitch)
     {
@@ -96,17 +110,20 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
         // we do this so that a host considered bad has a chance to recover, otherwise would we never try
         // to read from it, which would cause its score to never change
         reset = () -> reset(false);
+        latencyPing = this::sendLatencyPing;
 
         if (DatabaseDescriptor.isDaemonInitialized())
         {
             updateSchedular = ScheduledExecutors.scheduledTasks.scheduleWithFixedDelay(update, dynamicUpdateInterval, dynamicUpdateInterval, TimeUnit.MILLISECONDS);
             resetSchedular = ScheduledExecutors.scheduledTasks.scheduleWithFixedDelay(reset, dynamicResetInterval, dynamicResetInterval, TimeUnit.MILLISECONDS);
+            latencyPingSchedular = ScheduledExecutors.scheduledTasks.scheduleWithFixedDelay(latencyPing, dynamicLatencyPingInterval, dynamicLatencyPingInterval, TimeUnit.MILLISECONDS);
+
             registerMBean();
         }
     }
 
     /**
-     * Update configuration from {@link DatabaseDescriptor} and estart the update-scheduler and reset-scheduler tasks
+     * Update configuration from {@link DatabaseDescriptor} and restart the various scheduler tasks
      * if the configured rates for these tasks have changed.
      */
     public void applyConfigChanges()
@@ -131,6 +148,16 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
             }
         }
 
+        if (dynamicLatencyPingInterval != DatabaseDescriptor.getDynamicLatencyPingInterval())
+        {
+            dynamicLatencyPingInterval = DatabaseDescriptor.getDynamicLatencyPingInterval();
+            if (DatabaseDescriptor.isDaemonInitialized())
+            {
+                latencyPingSchedular.cancel(false);
+                latencyPingSchedular = ScheduledExecutors.scheduledTasks.scheduleWithFixedDelay(latencyPing, dynamicLatencyPingInterval, dynamicLatencyPingInterval, TimeUnit.MILLISECONDS);
+            }
+        }
+
         dynamicBadnessThreshold = DatabaseDescriptor.getDynamicBadnessThreshold();
     }
 
@@ -151,6 +178,7 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
     {
         updateSchedular.cancel(false);
         resetSchedular.cancel(false);
+        latencyPingSchedular.cancel(false);
 
         MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
         try
@@ -314,8 +342,8 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
         }
     }
 
-    @Override
-    public boolean needsTiming(InetAddressAndPort address)
+    @VisibleForTesting
+    boolean needsTiming(InetAddressAndPort address)
     {
         return needsLatencyProbe.contains(address);
     }
@@ -373,11 +401,7 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
         }
         else
         {
-            // We have to prune nodes that are no longer part of the cluster
-            Set<InetAddressAndPort> needsRemoval = samples.keySet().stream()
-                   .filter(host -> Gossiper.instance.getEndpointStateForEndpoint(host) == null)
-                   .collect(Collectors.toSet());
-            samples.keySet().removeAll(needsRemoval);
+            samples.keySet().retainAll(Gossiper.instance.getLiveMembers());
             needsLatencyProbe.clear();
 
             samples.replaceAll((host, reservoir) -> {
@@ -404,6 +428,29 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
         }
     }
 
+    /**
+     * Sends a latency ping to a host that the {@link #reset} method has determined need latency information
+     */
+    private void sendLatencyPing()
+    {
+        Optional<InetAddressAndPort> needsPing = needsLatencyProbe.stream().findFirst();
+        if (!needsPing.isPresent() || !registered)
+            return;
+
+        InetAddressAndPort to = needsPing.get();
+        needsLatencyProbe.remove(to);
+        MessageOut<PingMessage> latencyProbe = new MessageOut<>(PING, PingMessage.smallChannelMessage,
+                                                                PingMessage.serializer, SMALL_MESSAGE);
+        logger.trace("Sending a PingMessage to {}", to);
+        IAsyncCallback latencyProbeHandler = new IAsyncCallback()
+        {
+            public boolean isLatencyForSnitch() { return true; }
+            public LatencyUsableForSnitch latencyUsableForSnitch() { return LatencyUsableForSnitch.MAYBE; }
+            public void response(MessageIn msg) { }
+        };
+        MessagingService.instance().sendRR(latencyProbe, to, latencyProbeHandler);
+    }
+
     public Map<InetAddress, Double> getScores()
     {
         return scores.entrySet().stream().collect(Collectors.toMap(address -> address.getKey().address, Map.Entry::getValue));
@@ -421,6 +468,10 @@ public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements ILa
     public int getResetInterval()
     {
         return dynamicResetInterval;
+    }
+    public int getLatencyPingInterval()
+    {
+        return dynamicLatencyPingInterval;
     }
     public double getBadnessThreshold()
     {

@@ -5006,6 +5006,11 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     public void updateSnitch(String epSnitchClassName, Boolean dynamic, Integer dynamicUpdateInterval, Integer dynamicResetInterval, Double dynamicBadnessThreshold) throws ClassNotFoundException
     {
+        updateSnitch(epSnitchClassName, dynamic, dynamicUpdateInterval, dynamicResetInterval, null, dynamicBadnessThreshold);
+    }
+
+    public void updateSnitch(String epSnitchClassName, Boolean dynamic, Integer dynamicUpdateInterval, Integer dynamicResetInterval, Integer dynamicLatencyPingInterval, Double dynamicBadnessThreshold) throws ClassNotFoundException
+    {
         // apply dynamic snitch configuration
         if (dynamicUpdateInterval != null)
             DatabaseDescriptor.setDynamicUpdateInterval(dynamicUpdateInterval);
@@ -5013,13 +5018,14 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             DatabaseDescriptor.setDynamicResetInterval(dynamicResetInterval);
         if (dynamicBadnessThreshold != null)
             DatabaseDescriptor.setDynamicBadnessThreshold(dynamicBadnessThreshold);
+        if (dynamicLatencyPingInterval != null)
+            DatabaseDescriptor.setDynamicLatencyPingInterval(dynamicLatencyPingInterval);
 
         IEndpointSnitch oldSnitch = DatabaseDescriptor.getEndpointSnitch();
 
         // new snitch registers mbean during construction
-        if(epSnitchClassName != null)
+        if (epSnitchClassName != null)
         {
-
             // need to unregister the mbean _before_ the new dynamic snitch is instantiated (and implicitly initialized
             // and its mbean registered)
             if (oldSnitch instanceof DynamicEndpointSnitch)

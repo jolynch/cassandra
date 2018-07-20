@@ -221,6 +221,7 @@ public class Config
     public boolean dynamic_snitch = true;
     public int dynamic_snitch_update_interval_in_ms = 100;
     public int dynamic_snitch_reset_interval_in_ms = 600000;
+    public int dynamic_snitch_latency_ping_interval_in_ms = 1000;
     public double dynamic_snitch_badness_threshold = 0.1;
 
     public EncryptionOptions.ServerEncryptionOptions server_encryption_options = new EncryptionOptions.ServerEncryptionOptions();

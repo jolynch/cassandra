@@ -742,16 +742,6 @@ public final class MessagingService implements MessagingServiceMBean
     }
 
     /**
-     * called from gossiper to check if it needs to send some active latency probes for latency
-     * measurement purposes. Under real world traffic this almost always returns false.
-     */
-    public boolean needsLatencyMeasurement(InetAddressAndPort address)
-    {
-        return subscribers.stream().anyMatch(s -> s.needsTiming(address));
-    }
-
-
-    /**
      * called from gossiper when it notices a node is not responding.
      */
     public void convict(InetAddressAndPort ep)

@@ -69,6 +69,7 @@ public class DynamicEndpointSnitchTest
         for (InetAddressAndPort host : hosts)
         {
             Gossiper.instance.initializeNodeUnsafe(host, UUID.randomUUID(), 1);
+            Gossiper.instance.realMarkAlive(host, Gossiper.instance.getEndpointStateForEndpoint(host));
         }
         dsnitch.reset(true);
     }

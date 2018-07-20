@@ -471,12 +471,20 @@ public interface StorageServiceMBean extends NotificationEmitter
      * The parameters {@code dynamicUpdateInterval}, {@code dynamicResetInterval} and {@code dynamicBadnessThreshold}
      * can be specified individually to update the parameters of the dynamic snitch during runtime.
      *
-     * @param epSnitchClassName        the canonical path name for a class implementing IEndpointSnitch
-     * @param dynamic                  boolean that decides whether dynamicsnitch is used or not - only valid, if {@code epSnitchClassName} is specified
-     * @param dynamicUpdateInterval    integer, in ms (defaults to the value configured in cassandra.yaml, which defaults to 100)
-     * @param dynamicResetInterval     integer, in ms (defaults to the value configured in cassandra.yaml, which defaults to 600,000)
-     * @param dynamicBadnessThreshold  double, (defaults to the value configured in cassandra.yaml, which defaults to 0.0)
+     * @param epSnitchClassName          the canonical path name for a class implementing IEndpointSnitch
+     * @param dynamic                    boolean that decides whether dynamicsnitch is used or not - only valid, if {@code epSnitchClassName} is specified
+     * @param dynamicUpdateInterval      integer, in ms (defaults to the value configured in cassandra.yaml, which defaults to 100)
+     * @param dynamicResetInterval       integer, in ms (defaults to the value configured in cassandra.yaml, which defaults to 600,000)
+     * @param dynamicLatencyPingInterval integer, in ms (defaults to the value configured in cassandra.yaml, which defaults to 1,000)
+     * @param dynamicBadnessThreshold    double, (defaults to the value configured in cassandra.yaml, which defaults to 0.0)
      */
+    public void updateSnitch(String epSnitchClassName, Boolean dynamic, Integer dynamicUpdateInterval, Integer dynamicResetInterval, Integer dynamicLatencyPingInterval, Double dynamicBadnessThreshold) throws ClassNotFoundException;
+
+    /**
+     * Kept for backwards compatibility
+     * @deprecated use {@link #updateSnitch(String, Boolean, Integer, Integer, Integer, Double)} instead
+     */
+    @Deprecated
     public void updateSnitch(String epSnitchClassName, Boolean dynamic, Integer dynamicUpdateInterval, Integer dynamicResetInterval, Double dynamicBadnessThreshold) throws ClassNotFoundException;
 
     /*

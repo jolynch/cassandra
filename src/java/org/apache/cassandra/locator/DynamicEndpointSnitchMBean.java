@@ -29,6 +29,7 @@ public interface DynamicEndpointSnitchMBean
     public Map<InetAddress, Double> getScores();
     public int getUpdateInterval();
     public int getResetInterval();
+    public int getLatencyPingInterval();
     public double getBadnessThreshold();
     public String getSubsnitchClassName();
     public List<Double> dumpTimings(String hostname) throws UnknownHostException;

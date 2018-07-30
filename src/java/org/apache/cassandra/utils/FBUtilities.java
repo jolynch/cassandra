@@ -856,6 +856,26 @@ public class FBUtilities
         updateWithByte(digest, val ? 0 : 1);
     }
 
+    public static void convertIntToBytes(int val, byte[] buffer, int offset)
+    {
+        buffer[offset]     = ((byte) ((val >>> 24) & 0xFF));
+        buffer[offset + 1] = ((byte) ((val >>> 16) & 0xFF));
+        buffer[offset + 2] = ((byte) ((val >>>  8) & 0xFF));
+        buffer[offset + 3] = ((byte) ((val) & 0xFF));
+    }
+
+    public static void convertLongToBytes(long val, byte[] buffer, int offset)
+    {
+        buffer[offset] =     ((byte) ((val >>> 56) & 0xFF));
+        buffer[offset + 1] = ((byte) ((val >>> 48) & 0xFF));
+        buffer[offset + 2] = ((byte) ((val >>> 40) & 0xFF));
+        buffer[offset + 3] = ((byte) ((val >>> 32) & 0xFF));
+        buffer[offset + 4] = ((byte) ((val >>> 24) & 0xFF));
+        buffer[offset + 5] = ((byte) ((val >>> 16) & 0xFF));
+        buffer[offset + 6] = ((byte) ((val >>>  8) & 0xFF));
+        buffer[offset + 7] = ((byte) ((val) & 0xFF));
+    }
+
     public static void closeAll(List<? extends AutoCloseable> l) throws Exception
     {
         Exception toThrow = null;

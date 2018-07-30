@@ -24,8 +24,10 @@ import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.TreeMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -34,6 +36,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.primitives.Ints;
+import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.Map;
@@ -166,4 +169,35 @@ public class FBUtilitiesTest
         assertEquals(futSleep, 40);
     }
 
+    @Test
+    public void testConvertLongToBytes()
+    {
+        ByteBuffer reference = ByteBuffer.allocate(8);
+        byte[] buf = new byte[8];
+        Random random = new Random();
+
+        for (int i = 0; i < 10000; i++)
+        {
+            long value = random.nextLong();
+            FBUtilities.convertLongToBytes(value, buf, 0);
+            reference.putLong(0, value);
+            Assert.assertArrayEquals(reference.array(), buf);
+        }
+    }
+
+    @Test
+    public void testConvertIntToBytes()
+    {
+        ByteBuffer reference = ByteBuffer.allocate(4);
+        byte[] buf = new byte[4];
+        Random random = new Random();
+
+        for (int i = 0; i < 10000; i++)
+        {
+            int value = random.nextInt();
+            FBUtilities.convertIntToBytes(value, buf, 0);
+            reference.putInt(0, value);
+            Assert.assertArrayEquals(reference.array(), buf);
+        }
+    }
 }

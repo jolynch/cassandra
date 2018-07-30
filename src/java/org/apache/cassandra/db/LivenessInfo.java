@@ -161,7 +161,9 @@ public class LivenessInfo
      */
     public void digest(MessageDigest digest)
     {
-        FBUtilities.updateWithLong(digest, timestamp());
+        byte[] buf = new byte[8];
+        FBUtilities.convertLongToBytes(timestamp(), buf, 0);
+        digest.update(buf);
     }
 
     /**

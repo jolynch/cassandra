@@ -39,6 +39,7 @@ public class BufferCell extends AbstractCell
     private final int ttl;
     private final int localDeletionTime;
 
+    private final ByteBuffer metadata;
     private final ByteBuffer value;
     private final CellPath path;
 
@@ -46,9 +47,15 @@ public class BufferCell extends AbstractCell
     {
         super(column);
         assert column.isComplex() == (path != null);
+
+        metadata = ByteBuffer.allocate(16);
+        metadata.putLong(0, timestamp);
+        metadata.putInt(8, ttl);
+        metadata.putInt(12, localDeletionTime);
         this.timestamp = timestamp;
         this.ttl = ttl;
         this.localDeletionTime = localDeletionTime;
+
         this.value = value;
         this.path = path;
     }
@@ -130,6 +137,11 @@ public class BufferCell extends AbstractCell
     public CellPath path()
     {
         return path;
+    }
+
+    public ByteBuffer metadata()
+    {
+        return metadata;
     }
 
     public Cell withUpdatedColumn(ColumnDefinition newColumn)

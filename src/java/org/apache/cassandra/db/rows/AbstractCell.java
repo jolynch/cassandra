@@ -51,9 +51,14 @@ public abstract class AbstractCell extends Cell
             digest.update(value().duplicate());
         }
 
-        FBUtilities.updateWithLong(digest, timestamp());
-        FBUtilities.updateWithInt(digest, ttl());
-        FBUtilities.updateWithBoolean(digest, isCounterCell());
+        // 8 for the timestamp, 4 for the ttl, 1 for the counterCell = 13
+        byte[] buf = new byte[13];
+        FBUtilities.convertLongToBytes(timestamp(), buf, 0);
+        FBUtilities.convertIntToBytes(ttl(), buf, 8);
+        // Backwards compatibility with updateWithBoolean ... yes I know
+        buf[13] = isCounterCell() ? (byte) 0 : (byte) 1;
+        digest.update(buf);
+
         if (path() != null)
             path().digest(digest);
     }

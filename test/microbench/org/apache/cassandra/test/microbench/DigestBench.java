@@ -29,6 +29,7 @@ import org.junit.Assert;
 
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.MD5Digest;
+import org.apache.cassandra.utils.MurmurHash;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Fork;
@@ -139,6 +140,17 @@ public class DigestBench
             this.pos = 0;
         }
 
+        protected void putInt(int input)
+        {
+            if (pos + 4 >= buffer.length)
+            {
+                underlying.update(buffer, 0, pos);
+                pos = 0;
+            }
+            FBUtilities.convertIntToBytes(input, buffer, pos);
+            pos += 4;
+        }
+
         @Override
         protected void engineUpdate(byte input)
         {
@@ -208,6 +220,38 @@ public class DigestBench
         }
         expected = digest.digest();
         expectedIntDigest = digest2.digest();
+    }
+
+    @Benchmark
+    public void testWideRow() throws NoSuchAlgorithmException
+    {
+        MessageDigest digest = MessageDigest.getInstance("MD5");
+        ByteBuffer data = ByteBuffer.allocate(10000);
+        for (int i = 0; i < 2500; i++)
+        {
+            data.putInt(i, i);
+        }
+
+        for (long i = 0; i < 10000; i ++)
+        {
+            digest.update(dummyValues[(int)i].duplicate());
+        }
+    }
+
+    @Benchmark
+    public void testWideRowBuffered() throws NoSuchAlgorithmException
+    {
+        MessageDigest digest = new SimpleBufferedDigest(MessageDigest.getInstance("MD5"), 1024);
+        ByteBuffer data = ByteBuffer.allocate(10000);
+        for (int i = 0; i < 2500; i++)
+        {
+            data.putInt(i, i);
+        }
+
+        for(long i = 0; i < 10000; i ++)
+        {
+            digest.update(dummyValues[(int)i].duplicate());
+        }
     }
 
     @Benchmark
@@ -286,10 +330,11 @@ public class DigestBench
     @Benchmark
     public void bufferedUpdateWithInt() throws NoSuchAlgorithmException
     {
-        MessageDigest digest = new BufferedDigest(MessageDigest.getInstance("MD5"), buffSize);
+        SimpleBufferedDigest digest = new SimpleBufferedDigest(MessageDigest.getInstance("MD5"), buffSize);
         for(int i = 0; i < 10000; i++)
         {
-            FBUtilities.updateWithInt(digest, i);
+            digest.putInt(i);
+            //FBUtilities.updateWithInt(digest, i);
         }
         Assert.assertArrayEquals(expectedIntDigest, digest.digest());
     }

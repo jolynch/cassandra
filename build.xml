@@ -64,6 +64,7 @@
     <property name="test.microbench.src" value="${test.dir}/microbench"/>
     <property name="dist.dir" value="${build.dir}/dist"/>
     <property name="tmp.dir" value="${java.io.tmpdir}"/>
+    <property name="sidecar.classes" value="${build.dir}/sidecar/classes"/>
 
     <property name="doc.dir" value="${basedir}/doc"/>
 
@@ -233,6 +234,7 @@
         <mkdir dir="${test.lib}"/>
         <mkdir dir="${test.classes}"/>
         <mkdir dir="${stress.test.classes}"/>
+        <mkdir dir="${sidecar.test.classes}"/>
         <mkdir dir="${build.src.gen-java}"/>
         <mkdir dir="${build.dir.lib}"/>
         <mkdir dir="${jacoco.export.dir}"/>
@@ -575,6 +577,7 @@
         <dependency groupId="org.openjdk.jmh" artifactId="jmh-generator-annprocess"/>
         <dependency groupId="net.ju-n.compile-command-annotations" artifactId="compile-command-annotations"/>
         <dependency groupId="org.apache.ant" artifactId="ant-junit" version="1.9.7" />
+        <dependency groupId="org.mockito" artifactId="mockito-all" version="1.10.19"/>
       </artifact:pom>
       <!-- this build-deps-pom-sources "artifact" is the same as build-deps-pom but only with those
            artifacts that have "-source.jar" files -->
@@ -914,6 +917,62 @@
         </testmacro>
     </target>
 
+
+    <!-- Sidecar build file -->
+    <property name="sidecar.build.src" value="${basedir}/tools/sidecar/src" />
+    <property name="sidecar.build.lib" value="${basedir}/tools/sidecar/lib" />
+    <property name="sidecar.test.src" value="${basedir}/tools/sidecar/test/unit" />
+    <property name="sidecar.build.classes" value="${build.classes}/sidecar" />
+    <property name="sidecar.test.classes" value="${build.dir}/test/sidecar-classes" />
+    <property name="sidecar.manifest" value="${sidecar.build.classes}/MANIFEST.MF" />
+    <path id="cassandra.classes">
+        <pathelement location="${basedir}/build/classes/main" />
+    </path>
+
+    <target name="sidecar-build-test" depends="sidecar-build" description="Compile sidecar tests">
+        <javac debug="true" debuglevel="${debuglevel}" destdir="${sidecar.test.classes}"
+               source="${source.version}" target="${target.version}"
+               includeantruntime="false" encoding="utf-8">
+            <classpath>
+                <path refid="cassandra.classpath"/>
+                <pathelement location="${sidecar.build.classes}" />
+            </classpath>
+            <src path="${sidecar.test.src}"/>
+        </javac>
+    </target>
+
+    <target name="sidecar-build" depends="build" description="build sidecar">
+        <mkdir dir="${sidecar.build.classes}" />
+        <javac compiler="modern" debug="true" debuglevel="${debuglevel}"
+               source="${source.version}" target="${target.version}"
+               encoding="utf-8" destdir="${sidecar.build.classes}" includeantruntime="true">
+            <src path="${sidecar.build.src}" />
+            <classpath>
+                <path refid="cassandra.classes" />
+                <path>
+                    <fileset dir="${build.lib}">
+                        <include name="**/*.jar" />
+                    </fileset>
+                </path>
+                <path>
+                    <fileset dir="${sidecar.build.lib}">
+                        <include name="**/*.jar" />
+                    </fileset>
+                </path>
+            </classpath>
+        </javac>
+        <copy todir="${sidecar.build.classes}">
+            <fileset dir="${sidecar.build.src}/resources" />
+        </copy>
+    </target>
+
+    <target name="sidecar-test" depends="sidecar-build-test, build-test" description="Runs sidecar tests">
+        <testmacro inputdir="${sidecar.test.src}"
+                   timeout="${test.timeout}">
+        </testmacro>
+    </target>
+
+
 	<target name="_write-poms" depends="maven-declare-dependencies">
 	    <artifact:writepom pomRefId="parent-pom" file="${build.dir}/${final.name}-parent.pom"/>
 	    <artifact:writepom pomRefId="all-pom" file="${build.dir}/${final.name}.pom"/>
@@ -950,7 +1009,7 @@
       </jar>
     </target>
     <target name="jar"
-            depends="_main-jar, build-test, stress-build, write-poms"
+            depends="_main-jar, build-test, stress-build, sidecar-build, write-poms"
             description="Assemble Cassandra JAR files">
       <!-- Stress jar -->
       <manifest file="${stress.manifest}">
@@ -962,6 +1021,20 @@
       <jar destfile="${build.dir}/tools/lib/stress.jar" manifest="${stress.manifest}">
         <fileset dir="${stress.build.classes}"/>
       </jar>
+
+        <!-- Sidecar jar -->
+        <manifest file="${sidecar.manifest}">
+            <attribute name="Built-By" value="Vinay Chella"/>
+            <attribute name="Main-Class" value="org.apache.cassandra.sidecar.Sidecar"/>
+        </manifest>
+        <mkdir dir="${sidecar.build.classes}/META-INF" />
+        <mkdir dir="${build.dir}/tools/lib/" />
+        <jar destfile="${build.dir}/tools/lib/sidecar.jar" manifest="${sidecar.manifest}">
+            <fileset dir="${sidecar.build.classes}"/>
+            <!-- Include sidecar deps to make a sidecar uber jar with its non C* deps -->
+            <zipgroupfileset dir="${basedir}/tools/sidecar/lib" includes="*.jar"/>
+        </jar>
+
     </target>
 
     <!--
@@ -1178,7 +1251,7 @@
     <!-- use https://github.com/krummas/jstackjunit to get thread dumps when unit tests time out -->
   <taskdef name="junit" classname="org.krummas.junit.JStackJUnitTask" classpath="lib/jstackjunit-0.0.1.jar"/>
 
-  <target name="build-test" depends="_main-jar, stress-build, write-poms" description="Compile test classes">
+  <target name="build-test" depends="_main-jar, stress-build, sidecar-build, write-poms" description="Compile test classes">
     <javac
      compiler="modern"
      debug="true"
@@ -1257,9 +1330,11 @@
         <classpath>
           <pathelement path="${java.class.path}"/>
           <pathelement location="${stress.build.classes}"/>
+          <pathelement location="${sidecar.build.classes}"/>
           <path refid="cassandra.classpath.test" />
           <pathelement location="${test.classes}"/>
           <pathelement location="${stress.test.classes}"/>
+            <pathelement location="${sidecar.test.classes}"/>
           <pathelement location="${test.conf}"/>
           <fileset dir="${test.lib}">
             <include name="**/*.jar" />
@@ -1529,7 +1604,7 @@
   </target>
 
   <target name="test-all"
-          depends="eclipse-warnings,test,long-test,test-compression,stress-test"
+          depends="eclipse-warnings,test,long-test,test-compression,stress-test, sidecar-test"
           description="Run all tests except for those under test-burn" />
 
   <!-- Use JaCoCo ant extension without needing externally saved lib -->
@@ -1849,6 +1924,8 @@
   <classpathentry kind="src" output="build/test/classes" path="test/resources" />
   <classpathentry kind="src" path="tools/stress/src"/>
   <classpathentry kind="src" output="build/test/stress-classes" path="tools/stress/test/unit" />
+  <classpathentry kind="src" path="tools/sidecar/src"/>
+  <classpathentry kind="src" output="build/test/sidecar-classes" path="tools/sidecar/test/unit" />
   <classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER"/>
   <classpathentry kind="output" path="build/classes/eclipse"/>
   <classpathentry kind="lib" path="test/conf"/>
@@ -1860,6 +1937,9 @@
   	    <include name="**/*.jar" />
      </fileset>
  	 <fileset dir="build/lib/jars">
+  	    <include name="**/*.jar" />
+  	 </fileset>
+      <fileset dir="tools/sidecar/lib">
   	    <include name="**/*.jar" />
   	 </fileset>
   	</path>

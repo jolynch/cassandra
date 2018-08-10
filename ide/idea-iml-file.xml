@@ -29,6 +29,8 @@
             <sourceFolder url="file://$MODULE_DIR$/src/resources" type="java-resource" />
             <sourceFolder url="file://$MODULE_DIR$/tools/stress/src" isTestSource="false" />
             <sourceFolder url="file://$MODULE_DIR$/tools/stress/test/unit" isTestSource="true" />
+            <sourceFolder url="file://$MODULE_DIR$/tools/sidecar/src" isTestSource="false" />
+            <sourceFolder url="file://$MODULE_DIR$/tools/sidecar/test/unit" isTestSource="true" />
             <sourceFolder url="file://$MODULE_DIR$/test/unit" isTestSource="true" />
             <sourceFolder url="file://$MODULE_DIR$/test/long" isTestSource="true" />
             <sourceFolder url="file://$MODULE_DIR$/test/microbench" isTestSource="true" />
@@ -64,6 +66,16 @@
                 </SOURCES>
                 <jarDirectory url="file://$MODULE_DIR$/build/lib/jars" recursive="false" />
                 <jarDirectory url="file://$MODULE_DIR$/build/lib/sources" recursive="false" type="SOURCES" />
+            </library>
+        </orderEntry>
+        <orderEntry type="module-library">
+            <library>
+                <CLASSES>
+                    <root url="file://$MODULE_DIR$/tools/sidecar/lib" />
+                </CLASSES>
+                <JAVADOC />
+                <SOURCES />
+                <jarDirectory url="file://$MODULE_DIR$/tools/sidecar/lib" recursive="false" />
             </library>
         </orderEntry>
     </component>

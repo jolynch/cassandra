@@ -98,6 +98,9 @@ cp -pr lib/* %{buildroot}/usr/share/%{username}/lib/
 # copy stress jar
 cp -p build/tools/lib/stress.jar %{buildroot}/usr/share/%{username}/
 
+# copy sidecar jar
+cp -p build/tools/lib/sidecar.jar %{buildroot}/usr/share/%{username}/
+
 # copy binaries
 mv bin/cassandra %{buildroot}/usr/sbin/
 cp -p bin/* %{buildroot}/usr/bin/

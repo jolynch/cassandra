@@ -436,6 +436,7 @@
 
           <dependency groupId="org.yaml" artifactId="snakeyaml" version="1.11"/>
           <dependency groupId="junit" artifactId="junit" version="4.12" />
+          <dependency groupId="org.mockito" artifactId="mockito-all" version="1.10.19"/>
           <dependency groupId="org.apache.rat" artifactId="apache-rat" version="0.10">
              <exclusion groupId="commons-lang" artifactId="commons-lang"/>
           </dependency>
@@ -561,6 +562,7 @@
                 artifactId="cassandra-parent"
                 version="${version}"/>
         <dependency groupId="junit" artifactId="junit"/>
+        <dependency groupId="org.mockito" artifactId="mockito-all"/>
         <dependency groupId="org.psjava" artifactId="psjava" version="0.1.19" />
         <dependency groupId="org.apache.rat" artifactId="apache-rat"/>
         <dependency groupId="org.apache.hadoop" artifactId="hadoop-core"/>
@@ -577,7 +579,7 @@
         <dependency groupId="org.openjdk.jmh" artifactId="jmh-generator-annprocess"/>
         <dependency groupId="net.ju-n.compile-command-annotations" artifactId="compile-command-annotations"/>
         <dependency groupId="org.apache.ant" artifactId="ant-junit" version="1.9.7" />
-        <dependency groupId="org.mockito" artifactId="mockito-all" version="1.10.19"/>
+
       </artifact:pom>
       <!-- this build-deps-pom-sources "artifact" is the same as build-deps-pom but only with those
            artifacts that have "-source.jar" files -->
@@ -587,6 +589,7 @@
                 artifactId="cassandra-parent"
                 version="${version}"/>
         <dependency groupId="junit" artifactId="junit"/>
+        <dependency groupId="org.mockito" artifactId="mockito-all"/>
 	<!-- UPDATE AND UNCOMMENT ON THE DRIVER RELEASE, BEFORE 4.0 RELEASE
         <dependency groupId="com.datastax.cassandra" artifactId="cassandra-driver-core" classifier="shaded"/>
 	-->
@@ -929,12 +932,14 @@
         <pathelement location="${basedir}/build/classes/main" />
     </path>
 
-    <target name="sidecar-build-test" depends="sidecar-build" description="Compile sidecar tests">
+    <target name="sidecar-build-test" depends="build-test, sidecar-build" description="Compile sidecar tests">
         <javac debug="true" debuglevel="${debuglevel}" destdir="${sidecar.test.classes}"
                source="${source.version}" target="${target.version}"
                includeantruntime="false" encoding="utf-8">
-            <classpath>
-                <path refid="cassandra.classpath"/>
+               <classpath>
+                <path refid="cassandra.classpath.test" />
+                <pathelement location="${test.classes}" />
+                <pathelement location="${test.conf}" />
                 <pathelement location="${sidecar.build.classes}" />
             </classpath>
             <src path="${sidecar.test.src}"/>
@@ -966,7 +971,7 @@
         </copy>
     </target>
 
-    <target name="sidecar-test" depends="sidecar-build-test, build-test" description="Runs sidecar tests">
+    <target name="sidecar-test" depends="sidecar-build-test" description="Runs sidecar tests">
         <testmacro inputdir="${sidecar.test.src}"
                    timeout="${test.timeout}">
         </testmacro>

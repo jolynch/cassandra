@@ -35,6 +35,10 @@ default_jobs: &default_jobs
             - unit_tests:
                   requires:
                       - build
+            - sidecar_tests:
+                  requires:
+                      - build
+
 with_dtests_jobs: &with_dtest_jobs
         jobs:
             - build
@@ -164,7 +168,6 @@ jobs:
 
             # get all of our unit test filenames
             set -eo pipefail && circleci tests glob "$HOME/cassandra/test/unit/**/*.java" > /tmp/all_java_unit_tests.txt
-
             # split up the unit tests into groups based on the number of containers we have
             set -eo pipefail && circleci tests split --split-by=timings --timings-type=filename --index=${CIRCLE_NODE_INDEX} --total=${CIRCLE_NODE_TOTAL} /tmp/all_java_unit_tests.txt > /tmp/java_tests_${CIRCLE_NODE_INDEX}.txt
             set -eo pipefail && cat /tmp/java_tests_${CIRCLE_NODE_INDEX}.txt | cut -c 37-1000000 | grep "Test\.java$" > /tmp/java_tests_${CIRCLE_NODE_INDEX}_final.txt
@@ -345,3 +348,36 @@ jobs:
       - store_artifacts:
           path: ~/cassandra-dtest/logs
           destination: dtest_no_vnodes_logs
+  sidecar_tests:
+    <<: *env_settings
+    parallelism: 1 # This job doesn't benefit from parallelism
+    shell: /bin/bash -eo pipefail -l
+    docker:
+      - image: *docker_image
+        environment:
+            <<: *env_vars
+    steps:
+      - attach_workspace:
+          at: /home/cassandra
+      - run:
+          name: Run Cassandra sidecar tests
+          command: |
+            export LANG=en_US.UTF-8
+            export JAVA_TOOL_OPTIONS="-Dfile.encoding=UTF8"
+            export PATH=$PATH:$ANT_HOME/bin:$JAVA_HOME/bin
+
+            #Skip all syncing to disk to avoid performance issues in flaky CI environments
+            export CASSANDRA_SKIP_SYNC=true
+
+            time mv ~/cassandra /tmp
+            cd /tmp/cassandra
+            ant sidecar-test
+          no_output_timeout: 15m
+      - store_test_results:
+            path: /tmp/cassandra/build/test/output/
+      - store_artifacts:
+          path: /tmp/cassandra/build/test/output
+          destination: junitxml
+      - store_artifacts:
+          path: /tmp/cassandra/build/test/logs
+          destination: logs

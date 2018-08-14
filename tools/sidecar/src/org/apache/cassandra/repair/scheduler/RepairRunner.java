@@ -1,6 +1,7 @@
 package org.apache.cassandra.repair.scheduler;
 
 import java.text.SimpleDateFormat;
+import java.util.Collections;
 import java.util.Date;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -103,7 +104,8 @@ class RepairRunner implements Callable<Boolean>, NotificationListener
             metrics.incNumTimesRepairStarted();
             repairMetadata.setStartTime(DateTime.now().toDate());
 
-            cmd = context.getCassInteraction().triggerRepair(range, repairParallelism, fullRepair, keyspace, table);
+            cmd = context.getCassInteraction().triggerRepair(Collections.singletonList(range),
+                                                             repairParallelism, fullRepair, keyspace, table);
 
             synchronized (repairMetadata)
             {

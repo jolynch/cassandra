@@ -125,7 +125,7 @@ public class RepairManager
                     logger.info("Not repairing node state: {}", localState);
                 }
 
-                if (assessCurrentPostRepairHooks(localState))
+                if (assessCurrentPostRepairHooks(localState, ranRepair))
                 {
                     ranHooks = true;
                     doPostRepairHooks(localState);
@@ -269,12 +269,14 @@ public class RepairManager
      * neighbors have repaired.
      *
      * @param repairState The current state of repair on this node
+     * @param ranRepair
      * @return true if this node can run post repair hooks at this time, false otherwise
      */
-    private boolean assessCurrentPostRepairHooks(LocalRepairState repairState)
+    private boolean assessCurrentPostRepairHooks(LocalRepairState repairState, boolean ranRepair)
     {
         boolean canRunHooks = (repairState.nodeStatus == NodeStatus.I_AM_DONE ||
-                               repairState.nodeStatus == NodeStatus.RUNNING_ELSEWHERE);
+                               repairState.nodeStatus == NodeStatus.RUNNING_ELSEWHERE ||
+                               ranRepair);
 
         boolean finished = false;
         if (repairController.isRepairDoneOnCluster(repairState.repairId) && canRunHooks)
@@ -400,7 +402,7 @@ public class RepairManager
             logger.warn("Some other thread has already set [hasRepairInitiated] to false, this is probably a bug");
         }
 
-        logger.info("All Tables repaired, No currently running repairs. Really exiting..");
+        logger.info("All tables repaired, no currently running repairs. Really exiting...");
     }
 
     // State (G)
@@ -526,7 +528,7 @@ public class RepairManager
                 @Override
                 public void onFailure(Throwable t) {
                     repairFutures.remove(future);
-                    logger.error("Repair failed (exception) on range {}", subRange);
+                    logger.error("Repair failed (exception) on range {}: {}", subRange, t);
                     if (t instanceof Exception) {
                         failedRepairRanges.offer(subRange);
                         doNextRepair();
@@ -541,7 +543,7 @@ public class RepairManager
                         runningRepairRanges.offer(nextRange);
                     }
                 }
-            });
+            }, MoreExecutors.directExecutor());
         }
 
         boolean timeout = false;

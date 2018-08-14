@@ -789,8 +789,9 @@ public class RepairController
             List<Range<Token>> completedRanges = rangeRepairs.stream()
                                                              .filter(rm -> rm.getStatus().isTerminal())
                                                              .map(rm -> cassInteraction.tokenRangeFromStrings(rm.getStartToken(), rm.getEndToken()))
-                                                             .sorted()
                                                              .collect(Collectors.toList());
+            // use Range.sort instead of .sorted above because this Range.sort sorts by left instead of right token.
+            Range.sort(completedRanges);
 
             List<Range<Token>> matchingRanges = primaryRangesByKeyspace.getOrDefault(ksTbName.split("\\.")[0], new LinkedList<>());
 

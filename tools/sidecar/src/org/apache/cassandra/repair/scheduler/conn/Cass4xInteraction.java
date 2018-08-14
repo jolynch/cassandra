@@ -315,11 +315,8 @@ public class Cass4xInteraction extends CassandraInteractionBase
         return true;
     }
 
-    /** Repair APIs are very different between versions
-     */
-
     @Override
-    public boolean isRepairRunning()
+    public boolean isRepairRunning(boolean defaultValue)
     {
         try
         {
@@ -333,9 +330,9 @@ public class Cass4xInteraction extends CassandraInteractionBase
         }
         catch (MalformedObjectNameException | UndeclaredThrowableException e)
         {
-            logger.error("Couldn't determine if repair was running, returning false", e);
+            logger.error("Couldn't determine if repair was running, returning " + defaultValue, e);
         }
-        return false;
+        return defaultValue;
     }
 
     @Override
@@ -352,13 +349,13 @@ public class Cass4xInteraction extends CassandraInteractionBase
         }
     }
 
-    public int triggerRepair(Range<Token> range, RepairParallelism repairParallelism, boolean fullRepair, String keyspace, String table)
+    public int triggerRepair(List<Range<Token>> ranges, RepairParallelism repairParallelism, boolean fullRepair, String keyspace, String table)
     {
         RepairUtil.checkState(tryGetConnection(), "JMXConnection is broken or not able to connect");
         checkNotNull(ssProxy, "ssProxy is not properly connected");
-        String msg = String.format("Triggering [%s] repair for table [%s.%s] with range [%s] and repair parallelism [%s]",
+        String msg = String.format("Triggering [%s] repair for table [%s.%s] with ranges [%s] and repair parallelism [%s]",
                                    fullRepair ? "full" : "incremental",
-                                   keyspace, table, range, repairParallelism);
+                                   keyspace, table, ranges, repairParallelism);
         logger.info(msg);
 
         Map<String, String> options = new HashMap<>();
@@ -366,10 +363,18 @@ public class Cass4xInteraction extends CassandraInteractionBase
         options.put(RepairOption.PRIMARY_RANGE_KEY, "true");
         options.put(RepairOption.COLUMNFAMILIES_KEY, table);
 
+        // Add in ranges if it's not the whole ring
+        if (ranges.size() > 0 && !ranges.get(0).left.equals(ranges.get(0).right))
+        {
+            String rangeDesc = ranges.stream()
+                                     .map(r -> String.format("%s:%s", r.left, r.right))
+                                     .collect(Collectors.joining(","));
+            options.put(RepairOption.RANGES_KEY, rangeDesc);
+        }
+
         if (fullRepair)
         {
             options.put(RepairOption.SUB_RANGE_REPAIR_KEY, "true");
-            options.put(RepairOption.RANGES_KEY, String.format("%s:%s", range.left, range.right));
             options.put(RepairOption.INCREMENTAL_KEY, "false");
         }
         else

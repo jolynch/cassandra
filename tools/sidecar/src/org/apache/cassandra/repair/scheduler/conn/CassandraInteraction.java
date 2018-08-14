@@ -235,9 +235,11 @@ public interface CassandraInteraction
 
     /**
      * Determines if repair is actively running on the local Cassandra node.
+     * @param defaultValue If we cannot determine the state, return this value. Allows callers to fail closed or
+     *                     open depending on the caller's need.
      * @return True if another repair is running locally.
      */
-    boolean isRepairRunning();
+    boolean isRepairRunning(boolean defaultValue);
 
     /**
      * Cancels all currently running repair on the local Cassandra node.
@@ -251,12 +253,12 @@ public interface CassandraInteraction
      *
      * TODO: Consider moving this to the Map approach Cassandra 4.x is using instead
      *
-     * @param range The token range to run repair on
+     * @param ranges The token ranges to run repair on
      * @param repairParallelism What kind of repair parallelism to use
      * @param fullRepair If this repair is full or incremental, true indicates full repair.
      * @param keyspace The keyspace to run repair on
      * @param table The table to run repair on
      * @return The repair command returned by the local Cassandra Daemon. A negative number means failure.
      */
-    int triggerRepair(Range<Token> range, RepairParallelism repairParallelism, boolean fullRepair, String keyspace, String table);
+    int triggerRepair(List<Range<Token>> ranges, RepairParallelism repairParallelism, boolean fullRepair, String keyspace, String table);
 }

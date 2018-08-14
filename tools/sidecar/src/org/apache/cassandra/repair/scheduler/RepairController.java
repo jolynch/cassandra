@@ -96,7 +96,7 @@ public class RepairController
     boolean canRunRepair(int repairId)
     {
         // Check if Repair is running on current node? If Yes: Return False, (Check from JMX)
-        if (cassInteraction.isRepairRunning())
+        if (cassInteraction.isRepairRunning(false))
         {
             return false;
         }
@@ -342,7 +342,7 @@ public class RepairController
 
     /**
      * Checks if all nodes finished their repair or not by querying repair_sequence (node level status)
-     * table.
+     * table. Also responsible for ensuring that stuck sequences get cancelled.
      * @param repairId RepairId to check the status for
      * @return true/ false to inform the repair done status on cluster
      */
@@ -995,12 +995,13 @@ public class RepairController
             if (clusterRepairStatus == RepairStatus.STARTED)
             {
                 daoManager.getRepairProcessDao().updateClusterRepairStatus(
-                new ClusterRepairStatus().setRepairId(repairId)
-                                         .setRepairStatus(RepairStatus.REPAIR_HOOK_RUNNING)
+                clusterStatus.get().setRepairId(repairId)
+                             .setRepairStatus(RepairStatus.REPAIR_HOOK_RUNNING)
                 );
             }
             // TODO: timeout the repair hook if it gets stuck ...
-            else if (clusterRepairStatus == RepairStatus.REPAIR_HOOK_RUNNING && isPostRepairHookCompleteOnCluster(repairId))
+            else if (clusterRepairStatus == RepairStatus.REPAIR_HOOK_RUNNING &&
+                     isPostRepairHookCompleteOnCluster(repairId))
             {
                 daoManager.getRepairProcessDao().markClusterRepairFinished(repairId);
                 return true;

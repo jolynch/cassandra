@@ -45,8 +45,10 @@ import org.apache.cassandra.repair.scheduler.dao.model.IRepairSequenceDao;
 import org.apache.cassandra.repair.scheduler.dao.model.IRepairStatusDao;
 import org.apache.cassandra.repair.scheduler.entity.ClusterRepairStatus;
 import org.apache.cassandra.repair.scheduler.entity.RepairMetadata;
+import org.apache.cassandra.repair.scheduler.entity.RepairOptions;
 import org.apache.cassandra.repair.scheduler.entity.RepairSequence;
 import org.apache.cassandra.repair.scheduler.entity.RepairStatus;
+import org.apache.cassandra.repair.scheduler.entity.RepairType;
 import org.apache.cassandra.repair.scheduler.entity.TableRepairConfig;
 import org.apache.cassandra.utils.FBUtilities;
 import org.joda.time.DateTime;
@@ -69,6 +71,7 @@ public class RepairControllerTest extends EmbeddedUnitTestBase
                                                                     new Murmur3Partitioner.LongToken(-9223372036854775808L));
 
     private CassandraInteraction interactionSpy;
+    private RepairSchedulerConfig configSpy;
     private RepairController repairController;
     private IRepairProcessDao repairProcessDaoSpy;
     private IRepairSequenceDao repairSequenceDaoSpy;
@@ -84,7 +87,7 @@ public class RepairControllerTest extends EmbeddedUnitTestBase
         // Mock-Spy
         RepairSchedulerContext contextSpy = Mockito.spy(context);
 
-        RepairSchedulerConfig configSpy = Mockito.spy(context.getConfig());
+        configSpy = Mockito.spy(context.getConfig());
         interactionSpy = Mockito.spy(context.getCassInteraction());
 
         doReturn(interactionSpy).when(contextSpy).getCassInteraction();
@@ -102,25 +105,22 @@ public class RepairControllerTest extends EmbeddedUnitTestBase
         when(repairDaoManagerSpy.getRepairSequenceDao()).thenReturn(repairSequenceDaoSpy);
         when(repairDaoManagerSpy.getRepairStatusDao()).thenReturn(repairStatusDaoSpy);
         when(repairDaoManagerSpy.getRepairHookDao()).thenReturn(repairHookDaoSpy);
-        //Setting Partitioner to one of the supported partitioners since {@link EmbeddedCassandraService} uses ByteOrderedParttioner
-        interactionSpy.setPartitioner(FBUtilities.newPartitioner(Murmur3Partitioner.class.getName()));
-
     }
 
     @Test
     public void canRunRepair()
     {
-        doReturn(false).when(interactionSpy).isRepairRunning();
+        doReturn(false).when(interactionSpy).isRepairRunning(false);
         Assert.assertTrue(repairController.canRunRepair(TEST_REPAIR_ID));
 
-        when(interactionSpy.isRepairRunning()).thenReturn(true);
+        when(interactionSpy.isRepairRunning(false)).thenReturn(true);
         Assert.assertFalse(repairController.canRunRepair(TEST_REPAIR_ID));
     }
 
     @Test
     public void canRunRepairChecksPaused()
     {
-        doReturn(false).when(interactionSpy).isRepairRunning();
+        doReturn(false).when(interactionSpy).isRepairRunning(false);
 
         ClusterRepairStatus mockRepairStatus = Mockito.mock(ClusterRepairStatus.class);
         RepairSequence mockRepairSequence = Mockito.mock(RepairSequence.class);
@@ -488,7 +488,7 @@ public class RepairControllerTest extends EmbeddedUnitTestBase
     }
 
     @Test
-    //TODO Fix Cass4xInteraction.getTokenRangeSplits() before fixing this this
+    //TODO Re-write this test
     public void getRangesForRepair()
     {
         /*
@@ -501,8 +501,7 @@ public class RepairControllerTest extends EmbeddedUnitTestBase
                                               .setKeyspace(REPAIR_SCHEDULER_KS_NAME).setName("repair_config")
                                               .setRepairOptions(new RepairOptions(configSpy)
                                                                 .setType(RepairType.FULL)
-                                                                .setSplitStrategy("100")
-                                                                .setNumWorkers(3));
+                                                                .setSplitStrategy("100"));
 
         List<Range<Token>> tokenSplits = new LinkedList<>();
         tokenSplits.add(new Range<Token>(start, "-6917529027641081856"));
@@ -514,10 +513,9 @@ public class RepairControllerTest extends EmbeddedUnitTestBase
         tokenSplits.add(new Range<Token>("4611686018427387904", "6917529027641081856"));
         tokenSplits.add(new Range<Token>("6917529027641081856", end));
 
-        TableRepairRangeContext
-        Mockito.when(interactionSpy.getTokenRangeSplits(
-        mockSubRangeTable.getKeyspace(), mockSubRangeTable.getName(), TEST_RING_RANGE,
-        mockSubRangeTable.getRepairOptions().getSplitStrategy()))
+        Mockito.when(interactionSpy.getTokenRangeSplits(mockSubRangeTable.getKeyspace(),
+                                                        mockSubRangeTable.getName(), TEST_RING_RANGE,
+                                                        mockSubRangeTable.getRepairOptions().getSplitStrategy()))
                .thenReturn(tokenSplits);
 
         List<Range<Token>> expectedRanges = new ArrayList<>();
@@ -557,11 +555,11 @@ public class RepairControllerTest extends EmbeddedUnitTestBase
                .thenReturn(repairHistory);
 
         Assert.assertEquals(expectedRanges, repairController.getRangesForRepair(TEST_REPAIR_ID, mockSubRangeTable));
-    */
+         */
     }
 
     @Test
-    //TODO Fix Cass4xInteraction.getTokenRangeSplits() before fixing this this
+    //TODO Re-write this test
     public void getRangesForRepairMultipleRanges()
     {
         /*

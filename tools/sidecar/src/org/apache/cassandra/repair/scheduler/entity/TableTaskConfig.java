@@ -28,17 +28,17 @@ import org.slf4j.LoggerFactory;
 
 import com.datastax.driver.core.TableMetadata;
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import org.apache.cassandra.repair.scheduler.config.RepairSchedulerConfig;
+import org.apache.cassandra.repair.scheduler.config.TaskSchedulerConfig;
 
-public class TableRepairConfig
+public class TableTaskConfig
 {
-    private static final Logger logger = LoggerFactory.getLogger(TableRepairConfig.class);
+    private static final Logger logger = LoggerFactory.getLogger(TableTaskConfig.class);
 
     private String name;
     private String keyspace;
     private String schedule;
     private RepairOptions repairOptions;
-    private List<String> postRepairHooks;
+    private List<String> postTaskHooks;
     private int interRepairDelayMinutes;
 
     private TableMetadata tableMetadata;
@@ -46,18 +46,18 @@ public class TableRepairConfig
     /**
      * Default constructor needed for Jackson JSON Deserialization
      */
-    public TableRepairConfig()
+    public TableTaskConfig()
     {
 
     }
-    public TableRepairConfig(RepairSchedulerConfig config, String schedule)
+    public TableTaskConfig(TaskSchedulerConfig config, String schedule)
     {
         this.schedule = schedule;
         this.repairOptions = new RepairOptions(config, schedule);
-        this.postRepairHooks = config.getHooks(schedule);
-        if (config.getInterrepairDelayMinutes(schedule) >= 0)
+        this.postTaskHooks = config.getHooks(schedule);
+        if (config.getIntertaskDelayMinutes(schedule) >= 0)
         {
-            interRepairDelayMinutes = config.getInterrepairDelayMinutes(schedule);
+            interRepairDelayMinutes = config.getIntertaskDelayMinutes(schedule);
         }
         else
         {
@@ -78,7 +78,7 @@ public class TableRepairConfig
         return name;
     }
 
-    public TableRepairConfig setName(String name)
+    public TableTaskConfig setName(String name)
     {
         this.name = name;
         return this;
@@ -89,7 +89,7 @@ public class TableRepairConfig
         return keyspace;
     }
 
-    public TableRepairConfig setKeyspace(String keyspace)
+    public TableTaskConfig setKeyspace(String keyspace)
     {
         this.keyspace = keyspace;
         return this;
@@ -111,11 +111,11 @@ public class TableRepairConfig
         return interRepairDelayMinutes;
     }
 
-    public TableRepairConfig setInterRepairDelayMinutes(int interRepairDelayMinutes)
+    public TableTaskConfig setInterRepairDelayMinutes(int interRepairDelayMinutes)
     {
         if (interRepairDelayMinutes < 0)
         {
-            logger.warn("Setting interrepair_delay_minutes to < 0 is not allowed, using default of {}", this.interRepairDelayMinutes);
+            logger.warn("Setting intertask_delay_minutes to < 0 is not allowed, using default of {}", this.interRepairDelayMinutes);
             return this;
         }
         this.interRepairDelayMinutes = interRepairDelayMinutes;
@@ -127,7 +127,7 @@ public class TableRepairConfig
         return repairOptions;
     }
 
-    public TableRepairConfig setRepairOptions(RepairOptions repairOptions)
+    public TableTaskConfig setRepairOptions(RepairOptions repairOptions)
     {
         this.repairOptions = repairOptions;
         return this;
@@ -138,19 +138,19 @@ public class TableRepairConfig
         return schedule;
     }
 
-    public List<String> getPostRepairHooks() {
-        return postRepairHooks;
+    public List<String> getPostTaskHooks() {
+        return postTaskHooks;
     }
 
-    public TableRepairConfig setPostRepairHooks(List<String> postRepairHooks)
+    public TableTaskConfig setPostTaskHooks(List<String> postTaskHooks)
     {
-        this.postRepairHooks = postRepairHooks;
+        this.postTaskHooks = postTaskHooks;
         return this;
     }
 
-    public boolean shouldRunPostRepairHook()
+    public boolean shouldRunPostTaskHook()
     {
-        return postRepairHooks.size() > 0;
+        return postTaskHooks.size() > 0;
     }
 
     @JsonIgnore
@@ -161,7 +161,7 @@ public class TableRepairConfig
         return Optional.of(tableMetadata);
     }
 
-    public TableRepairConfig setTableMetadata(TableMetadata tableMetadata)
+    public TableTaskConfig setTableMetadata(TableMetadata tableMetadata)
     {
         this.tableMetadata = tableMetadata;
         return this;
@@ -173,11 +173,11 @@ public class TableRepairConfig
      * @param tableConfig
      * @return
      */
-    public TableRepairConfig clone(TableRepairConfig tableConfig)
+    public TableTaskConfig clone(TableTaskConfig tableConfig)
     {
         this.repairOptions = tableConfig.getRepairOptions();
         this.interRepairDelayMinutes = tableConfig.getInterRepairDelayMinutes();
-        this.postRepairHooks = tableConfig.getPostRepairHooks();
+        this.postTaskHooks = tableConfig.getPostTaskHooks();
         return this;
     }
 
@@ -189,7 +189,7 @@ public class TableRepairConfig
                ", schedule=" + schedule +
                ", interRepairDelayMinutes=" + interRepairDelayMinutes +
                ", repairOptions=" + repairOptions +
-               ", postRepairHooks=" + postRepairHooks +
+               ", postTaskHooks=" + postTaskHooks +
                '}';
     }
 

@@ -33,23 +33,23 @@ import com.datastax.driver.core.Statement;
 import com.datastax.driver.core.querybuilder.Batch;
 import com.datastax.driver.core.querybuilder.Insert;
 import com.datastax.driver.core.querybuilder.QueryBuilder;
-import org.apache.cassandra.repair.scheduler.config.RepairSchedulerConfig;
-import org.apache.cassandra.repair.scheduler.config.RepairSchedulerContext;
+import org.apache.cassandra.repair.scheduler.config.TaskSchedulerConfig;
+import org.apache.cassandra.repair.scheduler.config.TaskSchedulerContext;
 import org.apache.cassandra.repair.scheduler.conn.CassandraInteraction;
 import org.apache.cassandra.repair.scheduler.dao.model.IRepairSequenceDao;
 import org.apache.cassandra.repair.scheduler.entity.RepairHost;
 import org.apache.cassandra.repair.scheduler.entity.RepairSequence;
-import org.apache.cassandra.repair.scheduler.entity.RepairStatus;
+import org.apache.cassandra.repair.scheduler.entity.TaskStatus;
 import org.joda.time.DateTime;
 
 public class RepairSequenceDaoImpl implements IRepairSequenceDao
 {
     private static final Logger logger = LoggerFactory.getLogger(RepairSequenceDaoImpl.class);
     private final CassDaoUtil daoUtil;
-    private final RepairSchedulerConfig config;
+    private final TaskSchedulerConfig config;
     private final CassandraInteraction cassInteraction;
 
-    public RepairSequenceDaoImpl(RepairSchedulerContext context, CassDaoUtil daoUtil)
+    public RepairSequenceDaoImpl(TaskSchedulerContext context, CassDaoUtil daoUtil)
     {
         this.daoUtil = daoUtil;
         this.config = context.getConfig();
@@ -64,7 +64,7 @@ public class RepairSequenceDaoImpl implements IRepairSequenceDao
         {
             Statement exampleQuery = QueryBuilder.update(config.getRepairKeyspace(), config.getRepairSequenceTableName())
                                                  .with(QueryBuilder.set("start_time", DateTime.now().toDate()))
-                                                 .and(QueryBuilder.set("status", RepairStatus.STARTED.toString()))
+                                                 .and(QueryBuilder.set("status", TaskStatus.STARTED.toString()))
                                                  .where(QueryBuilder.eq("cluster_name", cassInteraction.getClusterName()))
                                                  .and(QueryBuilder.eq("repair_id", repairId))
                                                  .and(QueryBuilder.eq("seq", seq));
@@ -78,7 +78,7 @@ public class RepairSequenceDaoImpl implements IRepairSequenceDao
         return false;
     }
 
-    public boolean markNodeDone(int repairId, int seq, RepairStatus status)
+    public boolean markNodeDone(int repairId, int seq, TaskStatus status)
     {
         logger.info("Marking Node Repair Completed on repair Id: {} ", repairId);
         try
@@ -138,7 +138,7 @@ public class RepairSequenceDaoImpl implements IRepairSequenceDao
                                                .value("create_time", DateTime.now().toDate())
                                                .value("created_nodeid", cassInteraction.getLocalHostId())
                                                .value("schedule_name", scheduleName)
-                                               .value("status", RepairStatus.NOT_STARTED.toString());
+                                               .value("status", TaskStatus.NOT_STARTED.toString());
 
                 batch.add(statement);
             }
@@ -196,7 +196,7 @@ public class RepairSequenceDaoImpl implements IRepairSequenceDao
         {
             Statement updateQuery = QueryBuilder.update(config.getRepairKeyspace(), config.getRepairSequenceTableName())
                                                 .with(QueryBuilder.set("pause_time", DateTime.now().toDate()))
-                                                .and(QueryBuilder.set("status", RepairStatus.CANCELLED.toString()))
+                                                .and(QueryBuilder.set("status", TaskStatus.CANCELLED.toString()))
                                                 .and(QueryBuilder.set("last_event", ImmutableMap.of("Reason", "Cancelled due to long pauses")))
                                                 .where(QueryBuilder.eq("cluster_name", cassInteraction.getClusterName())).and(QueryBuilder.eq("repair_id", repairId)).and(QueryBuilder.eq("seq", seq));
 

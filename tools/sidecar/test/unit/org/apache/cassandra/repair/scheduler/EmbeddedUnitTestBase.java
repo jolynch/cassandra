@@ -20,19 +20,13 @@ package org.apache.cassandra.repair.scheduler;
 
 
 import java.io.IOException;
-import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.util.Collections;
-import java.util.LinkedList;
 import java.util.List;
-import java.util.Map;
 import java.util.Random;
 import java.util.Set;
-import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import com.google.common.collect.ImmutableSet;
-import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
 
@@ -44,25 +38,17 @@ import com.datastax.driver.core.QueryOptions;
 import com.datastax.driver.core.Session;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.cql3.CQLTester;
-import org.apache.cassandra.dht.Murmur3Partitioner;
-import org.apache.cassandra.repair.scheduler.config.RepairSchedulerConfig;
-import org.apache.cassandra.repair.scheduler.config.RepairSchedulerContext;
+import org.apache.cassandra.repair.scheduler.config.TaskSchedulerConfig;
+import org.apache.cassandra.repair.scheduler.config.TaskSchedulerContext;
 import org.apache.cassandra.repair.scheduler.conn.Cass4xInteraction;
 import org.apache.cassandra.repair.scheduler.conn.CassandraInteraction;
 import org.apache.cassandra.repair.scheduler.dao.cass.CassDaoUtil;
-import org.apache.cassandra.repair.scheduler.entity.RepairHost;
-import org.apache.cassandra.repair.scheduler.entity.RepairMetadata;
-import org.apache.cassandra.repair.scheduler.entity.TableRepairConfig;
 import org.apache.cassandra.service.EmbeddedCassandraService;
-import org.apache.cassandra.service.StorageService;
-import org.apache.cassandra.tools.ToolsTester;
-import org.apache.cassandra.utils.GuidGenerator;
 
 
 public class EmbeddedUnitTestBase
 {
-    protected RepairSchedulerContext context = null;
+    protected TaskSchedulerContext context = null;
     protected Set<String> sysKs = ImmutableSet.of("system_auth", "system_distributed", "system_schema");
     protected static final String TEST_CLUSTER_NAME = "Test Cluster";
     protected static final String REPAIR_SCHEDULER_KS_NAME = "system_distributed";
@@ -128,14 +114,14 @@ public class EmbeddedUnitTestBase
         return getSession();
     }
 
-    public RepairSchedulerContext getContext()
+    public TaskSchedulerContext getContext()
     {
         if (context == null)
-            context = new TestRepairSchedulerContext();
+            context = new TestTaskSchedulerContext();
         return context;
     }
 
-    protected class TestRepairSchedulerConfig extends RepairSchedulerConfig
+    protected class TestTaskSchedulerConfig extends TaskSchedulerConfig
     {
         public String getRepairKeyspace()
         {
@@ -175,9 +161,9 @@ public class EmbeddedUnitTestBase
         }
     }
 
-    protected class TestRepairSchedulerContext implements RepairSchedulerContext
+    protected class TestTaskSchedulerContext implements TaskSchedulerContext
     {
-        protected RepairSchedulerConfig config;
+        protected TaskSchedulerConfig config;
         protected CassandraInteraction interaction;
 
 
@@ -186,9 +172,9 @@ public class EmbeddedUnitTestBase
             return getLocaldb();
         }
 
-        public RepairSchedulerConfig getConfig()
+        public TaskSchedulerConfig getConfig()
         {
-            if (this.config == null) this.config = new TestRepairSchedulerConfig();
+            if (this.config == null) this.config = new TestTaskSchedulerConfig();
             return this.config;
         }
 

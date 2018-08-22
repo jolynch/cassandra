@@ -26,10 +26,10 @@ import org.apache.cassandra.exceptions.ConfigurationException;
 public interface RepairSchedulerConfigurationLoader
 {
     /**
-     * Loads a {@link RepairSchedulerConfig} object to use to configure a RepairScheduler on instance.
+     * Loads a {@link TaskSchedulerConfig} object to use to configure a RepairScheduler on instance.
      *
-     * @return the {@link RepairSchedulerConfig} to use.
+     * @return the {@link TaskSchedulerConfig} to use.
      * @throws ConfigurationException if the configuration cannot be properly loaded.
      */
-    RepairSchedulerConfig loadConfig() throws ConfigurationException;
+    TaskSchedulerConfig loadConfig() throws ConfigurationException;
 }

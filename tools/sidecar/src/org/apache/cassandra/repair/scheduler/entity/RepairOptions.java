@@ -22,7 +22,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.repair.RepairParallelism;
-import org.apache.cassandra.repair.scheduler.config.RepairSchedulerConfig;
+import org.apache.cassandra.repair.scheduler.config.TaskSchedulerConfig;
 
 public class RepairOptions
 {
@@ -51,7 +51,7 @@ public class RepairOptions
 
     }
 
-    public RepairOptions(RepairSchedulerConfig config, String schedule)
+    public RepairOptions(TaskSchedulerConfig config, String schedule)
     {
         if (config.getWorkers(schedule) <= 0)
             numWorkers = Math.max(1, (int) Math.ceil(Runtime.getRuntime().availableProcessors() / 2));

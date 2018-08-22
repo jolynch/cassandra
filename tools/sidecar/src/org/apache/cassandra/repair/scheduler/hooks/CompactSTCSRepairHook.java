@@ -21,7 +21,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.repair.scheduler.conn.CassandraInteraction;
-import org.apache.cassandra.repair.scheduler.entity.TableRepairConfig;
+import org.apache.cassandra.repair.scheduler.entity.TableTaskConfig;
 
 /**
  * CompactSTCS is ideal for compaction STCS tables compaction *only*.
@@ -38,7 +38,7 @@ public class CompactSTCSRepairHook implements IRepairHook
     }
 
     @Override
-    public void run(CassandraInteraction interaction, TableRepairConfig tableConfig)
+    public void run(CassandraInteraction interaction, TableTaskConfig tableConfig)
     {
         if (tableConfig.getTableMetadata().isPresent() && tableConfig.getTableMetadata().get()
                                                                      .getOptions().getCompaction()

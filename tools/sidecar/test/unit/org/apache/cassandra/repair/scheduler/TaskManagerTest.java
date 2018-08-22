@@ -18,15 +18,14 @@
 
 package org.apache.cassandra.repair.scheduler;
 
-import java.util.List;
 import java.util.SortedSet;
 
 import org.apache.cassandra.repair.RepairParallelism;
 import org.apache.cassandra.repair.scheduler.entity.RepairOptions;
 import org.apache.cassandra.repair.scheduler.entity.RepairSequence;
-import org.apache.cassandra.repair.scheduler.entity.RepairStatus;
+import org.apache.cassandra.repair.scheduler.entity.TaskStatus;
 import org.apache.cassandra.repair.scheduler.entity.RepairType;
-import org.apache.cassandra.repair.scheduler.entity.TableRepairConfig;
+import org.apache.cassandra.repair.scheduler.entity.TableTaskConfig;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -34,17 +33,17 @@ import org.junit.Test;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-public class RepairManagerTest extends EmbeddedUnitTestBase
+public class TaskManagerTest extends EmbeddedUnitTestBase
 {
-    RepairDaoManager daoManager;
+    TaskDaoManager daoManager;
 
     @Before
     public void setupManager() throws InterruptedException
     {
         loadDataset(100);
-        daoManager = new RepairDaoManager(getContext());
+        daoManager = new TaskDaoManager(getContext());
 
-        TableRepairConfig testConfig = new TableRepairConfig(getContext().getConfig(), context.getConfig().getDefaultSchedule());
+        TableTaskConfig testConfig = new TableTaskConfig(getContext().getConfig(), context.getConfig().getDefaultSchedule());
         RepairOptions options = testConfig.getRepairOptions();
 
         // Full + subrange table
@@ -83,21 +82,21 @@ public class RepairManagerTest extends EmbeddedUnitTestBase
     @Test
     public void testRunRepairOnCluster()
     {
-        RepairManager rm = new RepairManager(getContext());
+        TaskManager rm = new TaskManager(getContext());
         int repairId = rm.runRepairOnCluster();
         // This is hard to test with a RF=1 cluster, Since everything is RF=1 we just have nothing to
         // repair and everything succeeds instantly. So ... check really basic stuff and leave the rest
         // to the e2e tests.
         assertEquals(1, repairId);
         SortedSet<RepairSequence> sequence = daoManager.getRepairSequenceDao().getRepairSequence(repairId);
-        assertEquals(RepairStatus.FINISHED, sequence.first().getStatus());
-        assertEquals(RepairStatus.REPAIR_HOOK_RUNNING,
-                     daoManager.getRepairProcessDao().getClusterRepairStatus().get().getRepairStatus());
+        assertEquals(TaskStatus.FINISHED, sequence.first().getStatus());
+        assertEquals(TaskStatus.HOOK_RUNNING,
+                     daoManager.getRepairProcessDao().getClusterRepairStatus().get().getTaskStatus());
 
         // Now this should finish the repair
         assertEquals(1, rm.runRepairOnCluster());
-        assertEquals(RepairStatus.FINISHED,
-                     daoManager.getRepairProcessDao().getClusterRepairStatus().get().getRepairStatus());
+        assertEquals(TaskStatus.FINISHED,
+                     daoManager.getRepairProcessDao().getClusterRepairStatus().get().getTaskStatus());
 
         // Repair should be done now for a little while.
         assertEquals(-1, rm.runRepairOnCluster());

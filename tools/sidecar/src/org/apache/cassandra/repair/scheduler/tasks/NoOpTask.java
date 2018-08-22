@@ -15,27 +15,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.cassandra.repair.scheduler.hooks;
 
-import org.apache.cassandra.repair.scheduler.conn.CassandraInteraction;
-import org.apache.cassandra.repair.scheduler.entity.TableTaskConfig;
+package org.apache.cassandra.repair.scheduler.tasks;
 
-/**
- * Performs Compaction after repair. This class compacts everything
- * regardless of the compaction strategy (LCS, TWCS etc.,). If you are looking for STCS compaction only,
- * {@link CompactSTCSRepairHook} would be the alternative
- */
-public class CompactAllRepairHook implements IRepairHook
+public class NoOpTask extends BaseTask
 {
-    @Override
-    public String getName()
-    {
-        return "COMPACT_ALL";
-    }
-
-    @Override
-    public void run(CassandraInteraction interaction, TableTaskConfig tableConfig)
-    {
-        interaction.triggerCompaction(tableConfig.getKeyspace(), tableConfig.getName());
-    }
 }

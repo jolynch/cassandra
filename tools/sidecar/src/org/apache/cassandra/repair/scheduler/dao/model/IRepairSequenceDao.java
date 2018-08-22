@@ -24,7 +24,7 @@ import java.util.SortedSet;
 
 import org.apache.cassandra.repair.scheduler.entity.RepairHost;
 import org.apache.cassandra.repair.scheduler.entity.RepairSequence;
-import org.apache.cassandra.repair.scheduler.entity.RepairStatus;
+import org.apache.cassandra.repair.scheduler.entity.TaskStatus;
 
 /**
  * Interface to manage repair_sequence table ( Node level repair metadata table).
@@ -50,7 +50,7 @@ public interface IRepairSequenceDao
      * @param status
      * @return boolean indicating the result of this operation
      */
-    boolean markNodeDone(int repairId, int seq, RepairStatus status);
+    boolean markNodeDone(int repairId, int seq, TaskStatus status);
 
     /**
      * Get the node sequence number of local node in a Repair Id

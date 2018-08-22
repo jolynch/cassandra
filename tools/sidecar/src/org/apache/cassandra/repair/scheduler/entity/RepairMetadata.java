@@ -26,10 +26,10 @@ public class RepairMetadata
     private final Map<String, String> lastEvent = new HashMap<>();
     public int repairId;
     private String clusterName, nodeId, keyspaceName, tableName, startToken, endToken;
-    private RepairStatus status;
+    private TaskStatus status;
     private Date createdTime, startTime, endTime, pauseTime;
     private int repairNum;
-    private TableRepairConfig repairConfig;
+    private TableTaskConfig repairConfig;
 
     public RepairMetadata()
     {
@@ -115,12 +115,12 @@ public class RepairMetadata
         return this;
     }
 
-    public RepairStatus getStatus()
+    public TaskStatus getStatus()
     {
         return status;
     }
 
-    public RepairMetadata setStatus(RepairStatus status)
+    public RepairMetadata setStatus(TaskStatus status)
     {
         this.status = status;
         return this;
@@ -128,7 +128,7 @@ public class RepairMetadata
 
     public RepairMetadata setStatus(String status)
     {
-        this.status = RepairStatus.valueOf(status);
+        this.status = TaskStatus.valueOf(status);
         return this;
     }
 
@@ -204,12 +204,12 @@ public class RepairMetadata
         return this;
     }
 
-    public TableRepairConfig getRepairConfig()
+    public TableTaskConfig getRepairConfig()
     {
         return repairConfig;
     }
 
-    public RepairMetadata setRepairConfig(TableRepairConfig repairConfig)
+    public RepairMetadata setRepairConfig(TableTaskConfig repairConfig)
     {
         this.repairConfig = repairConfig;
         return this;

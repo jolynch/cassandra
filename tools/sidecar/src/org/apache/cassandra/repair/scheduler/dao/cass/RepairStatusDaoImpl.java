@@ -31,12 +31,12 @@ import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Statement;
 import com.datastax.driver.core.querybuilder.QueryBuilder;
 import org.apache.cassandra.repair.scheduler.RepairUtil;
-import org.apache.cassandra.repair.scheduler.config.RepairSchedulerConfig;
-import org.apache.cassandra.repair.scheduler.config.RepairSchedulerContext;
+import org.apache.cassandra.repair.scheduler.config.TaskSchedulerConfig;
+import org.apache.cassandra.repair.scheduler.config.TaskSchedulerContext;
 import org.apache.cassandra.repair.scheduler.conn.CassandraInteraction;
 import org.apache.cassandra.repair.scheduler.dao.model.IRepairStatusDao;
 import org.apache.cassandra.repair.scheduler.entity.RepairMetadata;
-import org.apache.cassandra.repair.scheduler.entity.RepairStatus;
+import org.apache.cassandra.repair.scheduler.entity.TaskStatus;
 import org.joda.time.DateTime;
 
 import static com.datastax.driver.core.querybuilder.QueryBuilder.eq;
@@ -45,10 +45,10 @@ public class RepairStatusDaoImpl implements IRepairStatusDao
 {
     private static final Logger logger = LoggerFactory.getLogger(RepairStatusDaoImpl.class);
     private final CassDaoUtil daoUtil;
-    private final RepairSchedulerConfig config;
+    private final TaskSchedulerConfig config;
     private final CassandraInteraction cassInteraction;
 
-    public RepairStatusDaoImpl(RepairSchedulerContext context, CassDaoUtil daoUtil)
+    public RepairStatusDaoImpl(TaskSchedulerContext context, CassDaoUtil daoUtil)
     {
         this.daoUtil = daoUtil;
         this.config = context.getConfig();
@@ -292,7 +292,7 @@ public class RepairStatusDaoImpl implements IRepairStatusDao
                 runningRepair.setLastEvent("Cancellation Reason", "Long pause");
                 Statement statement = QueryBuilder.update(config.getRepairKeyspace(), config.getRepairStatusTableName())
                                                   .with(QueryBuilder.set("pause_time", DateTime.now().toDate()))
-                                                  .and(QueryBuilder.set("status", RepairStatus.CANCELLED.toString()))
+                                                  .and(QueryBuilder.set("status", TaskStatus.CANCELLED.toString()))
                                                   .and(QueryBuilder.set("last_event", runningRepair.getLastEvent()))
                                                   .where(eq("cluster_name", cassInteraction.getClusterName()))
                                                   .and(eq("node_id", nodeId)).and(eq("repair_id", repairId))
@@ -301,7 +301,7 @@ public class RepairStatusDaoImpl implements IRepairStatusDao
                                                   .and(eq("repair_cmd", runningRepair.getRepairNum()))
                                                   .and(eq("start_token", runningRepair.getStartToken()))
                                                   .and(eq("end_token", runningRepair.getEndToken()))
-                                                  .onlyIf(QueryBuilder.eq("status", RepairStatus.STARTED.toString()));
+                                                  .onlyIf(QueryBuilder.eq("status", TaskStatus.STARTED.toString()));
                 batch.add(statement);
             }
 

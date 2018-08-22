@@ -21,23 +21,22 @@ package org.apache.cassandra.repair.scheduler.dao.cass;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.Ignore;
 import org.junit.Test;
 
 import org.apache.cassandra.repair.scheduler.EmbeddedUnitTestBase;
-import org.apache.cassandra.repair.scheduler.dao.model.IRepairProcessDao;
-import org.apache.cassandra.repair.scheduler.entity.RepairStatus;
+import org.apache.cassandra.repair.scheduler.dao.model.ITaskProcessDao;
+import org.apache.cassandra.repair.scheduler.entity.TaskStatus;
 
-public class RepairProcessDaoImplTest extends EmbeddedUnitTestBase
+public class TaskProcessDaoImplTest extends EmbeddedUnitTestBase
 {
-    private IRepairProcessDao repairProcessDao;
+    private ITaskProcessDao repairProcessDao;
     private int repairId;
 
     @Before
     public void beforeMethod()
     {
         context = getContext();
-        repairProcessDao = new RepairProcessDaoImpl(context, getCassDaoUtil());
+        repairProcessDao = new TaskProcessDaoImpl(context, getCassDaoUtil());
         repairId = getRandomRepairId();
     }
 
@@ -55,15 +54,15 @@ public class RepairProcessDaoImplTest extends EmbeddedUnitTestBase
         Assert.assertTrue(repairProcessDao.acquireRepairInitLock(repairId));
         Assert.assertTrue(repairProcessDao.acquireRepairInitLock(repairId + 1));
         Assert.assertTrue(repairProcessDao.acquireRepairInitLock(repairId + 2));
-        Assert.assertEquals(RepairStatus.STARTED, repairProcessDao.getClusterRepairStatus().get().getRepairStatus());
-        Assert.assertEquals(repairId + 2, repairProcessDao.getClusterRepairStatus().get().getRepairId());
+        Assert.assertEquals(TaskStatus.STARTED, repairProcessDao.getClusterRepairStatus().get().getTaskStatus());
+        Assert.assertEquals(repairId + 2, repairProcessDao.getClusterRepairStatus().get().getTaskId());
     }
 
     @Test
     public void acquireRepairInitLock()
     {
         Assert.assertTrue(repairProcessDao.acquireRepairInitLock(repairId));
-        Assert.assertEquals(RepairStatus.STARTED, repairProcessDao.getClusterRepairStatus().get().getRepairStatus());
+        Assert.assertEquals(TaskStatus.STARTED, repairProcessDao.getClusterRepairStatus().get().getTaskStatus());
     }
 
     @Test
@@ -71,8 +70,8 @@ public class RepairProcessDaoImplTest extends EmbeddedUnitTestBase
     {
         int repairId = getRandomRepairId();
         Assert.assertTrue(repairProcessDao.acquireRepairInitLock(repairId));
-        Assert.assertEquals(repairProcessDao.getClusterRepairStatus().get().getRepairStatus(), RepairStatus.STARTED);
+        Assert.assertEquals(repairProcessDao.getClusterRepairStatus().get().getTaskStatus(), TaskStatus.STARTED);
         Assert.assertTrue(repairProcessDao.markClusterRepairFinished(repairId));
-        Assert.assertEquals(repairProcessDao.getClusterRepairStatus().get().getRepairStatus(), RepairStatus.FINISHED);
+        Assert.assertEquals(repairProcessDao.getClusterRepairStatus().get().getTaskStatus(), TaskStatus.FINISHED);
     }
 }

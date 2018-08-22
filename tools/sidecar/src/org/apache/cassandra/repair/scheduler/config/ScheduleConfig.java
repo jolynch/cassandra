@@ -18,26 +18,24 @@
 package org.apache.cassandra.repair.scheduler.config;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * This class holds schedule specific repair settings/ configs
  */
 public class ScheduleConfig
 {
-    public int repair_timeout_in_s = 1800;
+    public String task_name = "RepairTask";
 
-    public String repair_type = "FULL";
+    public int task_timeout_in_s = 1800;
 
     public int workers = -1;
 
-    public String parallelism = "sequential";
-
     public List<String> hooks = Collections.singletonList("CleanupRepairHook");
 
-    public String split_strategy = "adaptive";
+    public int intertask_delay_minutes = 1440;
 
-    public int interrepair_delay_minutes = 1440;
-
-    public int repair_wait_for_healthy_in_ms = 900000;
+    public Map<String, String> task_config = new HashMap<>();
 }

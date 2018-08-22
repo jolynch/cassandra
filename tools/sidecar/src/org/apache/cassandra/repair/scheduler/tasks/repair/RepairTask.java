@@ -15,12 +15,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.cassandra.repair.scheduler;
+package org.apache.cassandra.repair.scheduler.tasks.repair;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
@@ -29,10 +27,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.SortedSet;
-import java.util.TreeSet;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
-import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import javax.management.NotificationListener;
@@ -41,256 +36,56 @@ import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.datastax.driver.core.Host;
 import com.datastax.driver.core.KeyspaceMetadata;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.repair.scheduler.config.RepairSchedulerContext;
-import org.apache.cassandra.repair.scheduler.conn.CassandraInteraction;
-import org.apache.cassandra.repair.scheduler.dao.model.IRepairConfigDao;
+import org.apache.cassandra.repair.scheduler.TaskDaoManager;
+import org.apache.cassandra.repair.scheduler.config.TaskSchedulerContext;
 import org.apache.cassandra.repair.scheduler.dao.model.IRepairStatusDao;
-import org.apache.cassandra.repair.scheduler.entity.ClusterRepairStatus;
 import org.apache.cassandra.repair.scheduler.entity.LocalRepairState;
-import org.apache.cassandra.repair.scheduler.entity.RepairHost;
 import org.apache.cassandra.repair.scheduler.entity.RepairMetadata;
 import org.apache.cassandra.repair.scheduler.entity.RepairSequence;
-import org.apache.cassandra.repair.scheduler.entity.RepairStatus;
-import org.apache.cassandra.repair.scheduler.entity.TableRepairConfig;
+import org.apache.cassandra.repair.scheduler.entity.TaskStatus;
+import org.apache.cassandra.repair.scheduler.entity.TableTaskConfig;
 import org.apache.cassandra.repair.scheduler.entity.TableRepairRangeContext;
-import org.apache.cassandra.repair.scheduler.hooks.IRepairHook;
 import org.apache.cassandra.repair.scheduler.metrics.RepairSchedulerMetrics;
+import org.apache.cassandra.repair.scheduler.tasks.BaseTask;
 import org.joda.time.DateTime;
 
 /**
- * Repair Controller is the glue between RepairManager and RepairDaos, Cassandra Interaction classes.
+ * Repair Controller is the glue between TaskManager and RepairDaos, Cassandra Interaction classes.
  * This class is the control plane for repair scheduler. Repair Controller holds all the definitions
  * for State Machine (Refer to CASSANDRA-14346). This is the backbone for repair scheduler.
  */
-public class RepairController
+public class RepairTask extends BaseTask
 {
-    private static final Logger logger = LoggerFactory.getLogger(RepairController.class);
+    private static final Logger logger = LoggerFactory.getLogger(RepairTask.class);
 
-    private final RepairDaoManager daoManager;
-    private final RepairSchedulerContext context;
-    private final CassandraInteraction cassInteraction;
-
-    public RepairController(RepairSchedulerContext context, RepairDaoManager daoManager)
+    public RepairTask(TaskSchedulerContext context, TaskDaoManager daoManager)
     {
-        cassInteraction = context.getCassInteraction();
-        this.context = context;
-        this.daoManager = daoManager;
+        super(context, daoManager);
 
-        logger.debug("RepairController Initialized.");
+        logger.debug("RepairTask Initialized.");
     }
 
     /**
-     * Given that no other nodes in the cluster are running repair (that is checked by isRepairRunningOnCluster.
+     * Given that no other nodes in the cluster are running repair (that is checked by isSequenceRunningOnCluster.
      * can this particular node start repairing? We cannot proceed at this time if:
      *  <ul>
      *    <li> 1. The local cassandra is currently running repairs (e.g. we crashed or a manual repair was run)</li>
      *    <li> 2. Repair is paused on this cluster </li>
      *  </ul>
-     * @param repairId RepairId to check the status for
+     * @param taskId RepairId to check the status for
      * @return true or false indicating whether repair can run or not
      */
-    boolean canRunRepair(int repairId)
+    public boolean canRunTask(int taskId)
     {
         // Check if Repair is running on current node? If Yes: Return False, (Check from JMX)
         if (cassInteraction.isRepairRunning(false))
         {
             return false;
         }
-        return !isRepairPausedOnCluster(repairId);
-    }
-
-    /**
-     * Checks if the repair is paused on the cluster for a given RepairId
-     * @param repairId RepairId to check the status for
-     * @return true/ false indicating the repair pause status
-     */
-    boolean isRepairPausedOnCluster(int repairId)
-    {
-        try
-        {
-            // Check if repair is paused at either cluster level or node level, if so return false
-            Optional<ClusterRepairStatus> crs = daoManager.getRepairProcessDao().getClusterRepairStatus(repairId);
-            Optional<RepairSequence> nrs = daoManager.getRepairSequenceDao().getMyNodeStatus(repairId);
-
-            if ((crs.isPresent() && crs.get().getRepairStatus().isPaused())
-                || (nrs.isPresent() && nrs.get().getStatus().isPaused()))
-            {
-                logger.debug("Either cluster level or node level repair is paused, hence not running repair");
-                return true;
-            }
-        }
-        catch (Exception e)
-        {
-            logger.error("Exception in getting repair status from repair_status table", e);
-        }
-        return false;
-    }
-
-    /**
-     * Checks if the repair is running on the cluster _not on this node_ for a given repair id
-     * @param repairId RepairId to check the status
-     * @return true/ false indicating the repair status
-     */
-    boolean isRepairRunningOnCluster(int repairId)
-    {
-        // Check underlying data store to see if there is any repair process running in the entire cluster
-        SortedSet<RepairSequence> repairSequence = daoManager.getRepairSequenceDao().getRepairSequence(repairId);
-        Optional<RepairSequence> anyRunning = repairSequence.stream().filter(rs -> rs.getStatus().isStarted()).findFirst();
-        String localId = cassInteraction.getLocalHostId();
-
-        if (anyRunning.isPresent() && !localId.equalsIgnoreCase(anyRunning.get().getNodeId()))
-        {
-            logger.debug("Repair is already running on this cluster on - {}", anyRunning.get());
-            return true;
-        }
-
-        // Check repair_status table to see if any table level repairs (lowest repair tracking table) are running or not
-        List<RepairMetadata> repairHistory = daoManager.getRepairStatusDao().getRepairHistory(repairId);
-        for (RepairMetadata row : repairHistory)
-        {
-            if (!row.getStatus().isCompleted() && !localId.equalsIgnoreCase(row.getNodeId()))
-            {
-                logger.debug("Repair is already running on this cluster on - {}", row);
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Checks if the repair sequence generation is stuck on the cluster.
-     * Stuck sequence generation is defined as, if the cluster process status table has an entry with the repair Id
-     * in started state and no sequence is generated in process_timeout_seconds seconds in repair_sequence table is
-     * defined as stuck.
-     * @param repairId RepairId to check the status for
-     * @return true/ false indicating the repair stuck status
-     */
-    boolean isRepairSequenceGenerationStuckOnCluster(int repairId)
-    {
-        try
-        {
-            Optional<ClusterRepairStatus> crs = getClusterRepairStatus();
-            int minutes = (int) TimeUnit.MINUTES.convert(context.getConfig().getRepairProcessTimeoutInS(), TimeUnit.SECONDS);
-            if (crs.isPresent() &&
-                crs.get().getStartTime().before(DateTime.now().minusMinutes(minutes).toDate()) &&
-                daoManager.getRepairSequenceDao().getRepairSequence(repairId).size() == 0)
-            {
-                return true;
-            }
-        }
-        catch (Exception e)
-        {
-            logger.error("Exception occurred in checking the stuck status on cluster", e);
-        }
-        return false;
-    }
-
-    /**
-     * Gets repair nodes where repair is stuck. Stuck repair is defined as, As per the design,
-     * every node in state (F) is constantly heartbeats to their row in the repair_sequence table
-     * as it makes progress in repairing, if any node is updating their heartbeat for more than process_timeout_seconds
-     * then that is defined as a stuck repair node.
-     * @param repairId RepairId to check the status of stuck nodes
-     * @return RepairNodes which are stuck
-     */
-    Optional<RepairSequence> getStuckRepairNodes(int repairId)
-    {
-        logger.info("Getting latest in progress heartbeat for repair Id: {}", repairId);
-        try
-        {
-            SortedSet<RepairSequence> repairSeqSet = daoManager.getRepairSequenceDao().getRepairSequence(repairId);
-            long minutes = TimeUnit.MINUTES.convert(context.getConfig().getRepairProcessTimeoutInS(), TimeUnit.SECONDS);
-            for (RepairSequence repairSequence : repairSeqSet)
-            {
-                if (repairSequence.getStatus().isStarted() && repairSequence.isLastHeartbeatBeforeMin(minutes))
-                {
-                    logger.debug("Found at least one latest in-progress heartbeat whose last sent time is before {} minutes ago - [{}]",
-                                 minutes, repairSequence);
-                    return Optional.of(repairSequence);
-                }
-            }
-        }
-        catch (Exception e)
-        {
-            logger.error("Exception in finding if repair is stuck on cluster for repair Id:{}", repairId, e);
-        }
-
-        return Optional.empty();
-    }
-
-    /**
-     * Cleans cluster repair status from repair process table
-     * @param repairId RepairId to abort the repair for
-     */
-    void abortRepairOnCluster(int repairId)
-    {
-        logger.warn("Aborting Stuck Repair on Cluster for repairId {}", repairId);
-        daoManager.getRepairProcessDao().deleteClusterRepairStatus(repairId);
-    }
-
-    /**
-     * Pauses repair on cluster. It updates the repair_process table which is the key table for global
-     * repair status at cluster level
-     * @param repairId RepairId to pause the repair
-     */
-    void pauseRepairOnCluster(int repairId)
-    {
-        Optional<ClusterRepairStatus> crs = getClusterRepairStatus(repairId);
-        if (crs.isPresent())
-        {
-            ClusterRepairStatus status = crs.get();
-            status.setPauseTime(DateTime.now().toDate())
-                  .setRepairStatus(RepairStatus.PAUSED);
-            daoManager.getRepairProcessDao().updateClusterRepairStatus(status);
-            logger.warn("Pausing repair on cluster for repairId {}", repairId);
-        }
-    }
-
-    /**
-     * Aborts repair on current node, if the sequence to be aborted is not the current node, update
-     * the status table
-     * @param sequence RepairSequence to abort the repair
-     */
-    private void abortRepairOnStuckSequence(RepairSequence sequence)
-    {
-        logger.warn("Aborting Stuck Repair on {}", sequence.getNodeId());
-        RepairSchedulerMetrics.instance.incNumTimesRepairStuck();
-        cancelRepairOnNode(sequence.getRepairId(), sequence, "Stuck sequence");
-    }
-
-    /**
-     * Gets the repair sequences from meta store matching the given predicate
-     * @param repairId Repair Id to get the sequences from
-     * @param include predicate to filter for in repair sequences
-     * @return Set of repair sequences
-     */
-    private SortedSet<RepairSequence> getMatchingRepairSequences(int repairId, Predicate<RepairSequence> include)
-    {
-        SortedSet<RepairSequence> matchingRepairSequences = new TreeSet<>();
-        SortedSet<RepairSequence> repairSeqSet = daoManager.getRepairSequenceDao().getRepairSequence(repairId);
-
-        repairSeqSet.stream()
-                    .filter(include)
-                    .forEach(matchingRepairSequences::add);
-
-        logger.debug("Found {} matching repair node sequences for repairId: {}", matchingRepairSequences.size(), repairId);
-        return matchingRepairSequences;
-    }
-
-    /**
-     * Checks if the repair hook exists for a schedule on current cluster
-     * @param scheduleName schedule name
-     * @return true / false
-     */
-    private boolean isPostRepairHookExists(String scheduleName)
-    {
-        List<TableRepairConfig> tableConfigs = daoManager.getRepairConfigDao().getAllRepairEnabledTables(scheduleName);
-        return tableConfigs.stream().anyMatch(TableRepairConfig::shouldRunPostRepairHook);
+        return !isSequencePausedOnCluster(taskId);
     }
 
     /**
@@ -300,12 +95,12 @@ public class RepairController
      * @param repairId RepairId to check
      * @return Returns the repair sequence object if it is next, currently running, or already done sequence
      */
-    Optional<RepairSequence> amINextInRepairOrDone(int repairId)
+    public Optional<RepairSequence> amINextInSequenceOrDone(int repairId)
     {
         SortedSet<RepairSequence> nonTerminalRepairSequence = getMatchingRepairSequences(
         repairId, rs -> !rs.getStatus().isTerminal());
         SortedSet<RepairSequence> finishedRepairSequences = getMatchingRepairSequences(
-        repairId, rs -> rs.getStatus() == RepairStatus.FINISHED);
+        repairId, rs -> rs.getStatus() == TaskStatus.FINISHED);
 
         String localHostId = cassInteraction.getLocalHostId();
 
@@ -324,7 +119,7 @@ public class RepairController
             StringUtils.isNotBlank(next.get().getNodeId()) &&
             next.get().getNodeId().equalsIgnoreCase(localHostId))
         {
-            RepairStatus myStatus = next.get().getStatus();
+            TaskStatus myStatus = next.get().getStatus();
             if (!myStatus.isPaused() && !myStatus.isCancelled())
             {
                 return next;
@@ -335,106 +130,9 @@ public class RepairController
             }
         }
 
-        getStuckRepairNodes(repairId).ifPresent(this::abortRepairOnStuckSequence);
+        getStuckSequence(repairId).ifPresent(this::abortTaskOnStuckSequence);
 
         return Optional.empty();
-    }
-
-    /**
-     * Checks if all nodes finished their repair or not by querying repair_sequence (node level status)
-     * table. Also responsible for ensuring that stuck sequences get cancelled.
-     * @param repairId RepairId to check the status for
-     * @return true/ false to inform the repair done status on cluster
-     */
-    boolean isRepairDoneOnCluster(int repairId)
-    {
-        getStuckRepairNodes(repairId).ifPresent(this::abortRepairOnStuckSequence);
-
-        SortedSet<RepairSequence> repairSeq = daoManager.getRepairSequenceDao().getRepairSequence(repairId);
-
-        long finishedRepairsCnt = repairSeq.stream().filter(rs -> rs.getStatus().isCompleted()).count();
-
-        // Have to check for > 0 in case of a race on this check before a node has a chance to generate
-        // the repair sequence elsewhere.
-        if (repairSeq.size() == finishedRepairsCnt && repairSeq.size() > 0)
-        {
-            return true;
-        }
-        else
-        {
-            logger.info("Not all nodes completed their repair for repairId: {}", repairId);
-        }
-        return false;
-    }
-
-    /**
-     * Gets the currently running repair id
-     * @return repair id
-     */
-    public int getRepairId()
-    {
-        int repairId = -1;
-        try
-        {
-            Optional<ClusterRepairStatus> crs = getClusterRepairStatus();
-            if (crs.isPresent() && crs.get().getRepairStatus().isStarted())
-                repairId = crs.get().getRepairId();
-        }
-        catch (Exception e)
-        {
-            logger.error("Failed to retrieve cluster status, failing fast", e);
-        }
-
-        return repairId;
-    }
-
-    /**
-     * Gets current/ latest repair status on the current cluster
-     * @return cluster repair status
-     */
-    public Optional<ClusterRepairStatus> getClusterRepairStatus()
-    {
-        return daoManager.getRepairProcessDao().getClusterRepairStatus();
-    }
-
-    /**
-     * Gets the cluster repair status for a given repair id
-     * @param repairId repair id
-     * @return cluster repair status
-     */
-    private Optional<ClusterRepairStatus> getClusterRepairStatus(int repairId)
-    {
-        return daoManager.getRepairProcessDao().getClusterRepairStatus(repairId);
-    }
-
-    /**
-     * Populates endpoint/ nodes sequence map. This is done by only one node in the cluster.
-     * This is the most important step in starting the repair on the cluster, this happens as soon as
-     * one of the nodes able to claim repair id.
-     * @param repairId Repair Id to generate the sequence for
-     * @param scheduleName schedule name
-     */
-    void populateEndpointSequenceMap(int repairId, String scheduleName)
-    {
-        List<RepairHost> hostsToRepair = getRepairHosts();
-        daoManager.getRepairConfigDao().getRepairConfigs(scheduleName);
-        daoManager.getRepairSequenceDao().persistEndpointSeqMap(repairId, scheduleName, hostsToRepair);
-    }
-
-    /**
-     * Gets RepairHosts from C* JMX, this has the information of node id, rack, region etc.,
-     * @return List if repairable hosts
-     */
-    private List<RepairHost> getRepairHosts()
-    {
-        Map<String, String> endpointToHostId = cassInteraction.getEndpointToHostIdMap();
-
-        Set<Host> allHosts = context.localSession().getCluster().getMetadata().getAllHosts();
-
-        return allHosts.stream()
-                       .map(RepairHost::new)
-                       .sorted(Comparator.comparing(RepairHost::getFirstToken))
-                       .collect(Collectors.toList());
     }
 
     /**
@@ -442,7 +140,7 @@ public class RepairController
      * @param repairId repair id
      * @param seq node / instance information
      */
-    void prepareForRepairOnNode(int repairId, RepairSequence seq)
+    public void prepareForTaskOnNode(int repairId, RepairSequence seq)
     {
         daoManager.getRepairSequenceDao().markRepairStartedOnInstance(repairId, seq.getSeq());
     }
@@ -450,11 +148,12 @@ public class RepairController
     /**
      * Cancels repair on current node. If the given instance information is not current node,
      * it updates the sequence and status tables as cancelled
-     * @param repairId repair id
+     * @param taskId repair id
+     * @param reason The reason for canceling the task
      * @param seq node information
      * @return true or false indicating the repair cancel status
      */
-    boolean cancelRepairOnNode(int repairId, RepairSequence seq, String reason)
+    public boolean cancelTaskOnNode(int taskId, String reason, RepairSequence seq)
     {
         boolean cancelled;
         RepairSchedulerMetrics.instance.incNumTimesRepairCancelled();
@@ -463,8 +162,8 @@ public class RepairController
             cassInteraction.cancelAllRepairs();
 
         // Cancel on status and sequence data items
-        cancelled = daoManager.getRepairSequenceDao().cancelRepairOnNode(repairId, seq.getSeq());
-        cancelled &= daoManager.getRepairStatusDao().markRepairCancelled(repairId, seq.getNodeId());
+        cancelled = daoManager.getRepairSequenceDao().cancelRepairOnNode(taskId, seq.getSeq());
+        cancelled &= daoManager.getRepairStatusDao().markRepairCancelled(taskId, seq.getNodeId());
 
         return cancelled;
     }
@@ -545,17 +244,6 @@ public class RepairController
     }
 
     /**
-     * This is the only coordination place in the repair scheduler, all nodes tries to call this method and expect
-     * a true as a return value, but whoever gets true back will go head for sequence generation and starts their repair
-     * @param proposedRepairId Proposed Repair Id
-     * @return true if this node is able to acquire a lock on repair_ process table based on proposed repair id
-     */
-    boolean attemptClusterRepairStart(int proposedRepairId)
-    {
-        return daoManager.getRepairProcessDao().acquireRepairInitLock(proposedRepairId);
-    }
-
-    /**
      * Returns the neighboring _primary_ replicas of this local node. These are host ids which must successfully
      * run repair before we can e.g. run post repair hooks (since this local node may receive data from them)
      *
@@ -616,7 +304,7 @@ public class RepairController
      * @return true/ false indicating the readiness fore post repair hook
      */
 
-    boolean amIReadyForPostRepairHook(int repairId)
+    public boolean amIReadyForPostTaskHook(int repairId)
     {
         logger.info("Checking to see if this node is ready for post repair hook for repairId: {}", repairId);
 
@@ -674,13 +362,13 @@ public class RepairController
         return isComplete;
     }
 
-    List<TableRepairConfig> prepareForRepairHookOnNode(RepairSequence sequence)
+    List<TableTaskConfig> prepareForRepairHookOnNode(RepairSequence sequence)
     {
-        List<TableRepairConfig> repairHookEligibleTables = daoManager.getRepairConfigDao()
-                                                                     .getAllRepairEnabledTables(sequence.getScheduleName())
-                                                                     .stream()
-                                                                     .filter(TableRepairConfig::shouldRunPostRepairHook)
-                                                                     .collect(Collectors.toList());
+        List<TableTaskConfig> repairHookEligibleTables = daoManager.getRepairConfigDao()
+                                                                   .getAllRepairEnabledTables(sequence.getScheduleName())
+                                                                   .stream()
+                                                                   .filter(TableTaskConfig::shouldRunPostTaskHook)
+                                                                   .collect(Collectors.toList());
         RepairSchedulerMetrics.instance.incNumTimesRepairHookStarted();
         daoManager.getRepairHookDao().markLocalPostRepairHookStarted(sequence.getRepairId());
 
@@ -688,27 +376,6 @@ public class RepairController
                     sequence.getRepairId(), cassInteraction.getLocalLoadString());
 
         return repairHookEligibleTables;
-    }
-
-    /**
-     * Calls Hook's run method
-     * @param hook Hook to run
-     * @param tableConfig table configuration as needed for repair hook
-     * @return true/ false indicating the response of this method
-     */
-    boolean runHook(IRepairHook hook, TableRepairConfig tableConfig)
-    {
-        try
-        {
-            hook.run(cassInteraction, tableConfig);
-        }
-        catch (Exception e)
-        {
-            String msg = String.format("Error running hook %s on table %s", hook, tableConfig);
-            logger.error(msg, e);
-            return false;
-        }
-        return true;
     }
 
     /**
@@ -722,7 +389,7 @@ public class RepairController
         {
             RepairSchedulerMetrics.instance.incNumTimesRepairHookCompleted();
             daoManager.getRepairHookDao().markLocalPostRepairHookEnd(sequence.getRepairId(),
-                                                                     RepairStatus.FINISHED, hookSuccess);
+                                                                     TaskStatus.FINISHED, hookSuccess);
         }
         else
         {
@@ -730,27 +397,11 @@ public class RepairController
 
             RepairSchedulerMetrics.instance.incNumTimesRepairHookFailed();
             daoManager.getRepairHookDao().markLocalPostRepairHookEnd(sequence.getRepairId(),
-                                                                     RepairStatus.FAILED, hookSuccess);
+                                                                     TaskStatus.FAILED, hookSuccess);
         }
 
         logger.info("C* Load after completing post repair hook(s) for repairId {}: {}",
                     sequence.getRepairId(), cassInteraction.getLocalLoadString());
-    }
-
-    /**
-     * Repairable tables grouped by schedule name.
-     *
-     * @return Map of Schedule_name, List of TableRepairConfigrations
-     */
-
-    Map<String, List<TableRepairConfig>> getRepairableTablesBySchedule()
-    {
-        Map<String, List<TableRepairConfig>> repairableTablesBySchedule = new HashMap<>();
-        for (String schedule : daoManager.getRepairConfigDao().getAllRepairSchedules())
-        {
-            repairableTablesBySchedule.put(schedule, daoManager.getRepairConfigDao().getAllRepairEnabledTables(schedule));
-        }
-        return repairableTablesBySchedule;
     }
 
     /**
@@ -761,12 +412,12 @@ public class RepairController
      * @param repairId Repair Id
      * @return Table Repair configrations
      */
-    List<TableRepairConfig> getTablesForRepair(int repairId, String scheduleName)
+    List<TableTaskConfig> getTablesForRepair(int repairId, String scheduleName)
     {
         // Get all tables available in this cluster to be repaired based on config and discovery
-        List<TableRepairConfig> tableConfigList = daoManager.getRepairConfigDao().getAllRepairEnabledTables(scheduleName);
+        List<TableTaskConfig> tableConfigList = daoManager.getRepairConfigDao().getAllRepairEnabledTables(scheduleName);
         Set<String> keyspaces = tableConfigList.stream()
-                                               .map(TableRepairConfig::getKeyspace).collect(Collectors.toSet());
+                                               .map(TableTaskConfig::getKeyspace).collect(Collectors.toSet());
 
         Function<String, List<Range<Token>>> conv = keyspace -> cassInteraction.getTokenRanges(keyspace, true);
         Map<String, List<Range<Token>>> primaryRangesByKeyspace = keyspaces.stream()
@@ -849,7 +500,7 @@ public class RepairController
      * @param tableConfig Table configuration
      * @return Range of Tokens
      */
-    List<Range<Token>> getRangesForRepair(int repairId, TableRepairConfig tableConfig)
+    List<Range<Token>> getRangesForRepair(int repairId, TableTaskConfig tableConfig)
     {
         List<Range<Token>> subRangeTokens = new ArrayList<>();
         List<RepairMetadata> repairHistory = daoManager.getRepairStatusDao()
@@ -939,7 +590,7 @@ public class RepairController
      * <p>
      * Note that we wait until all repair activity on this cassandra node is done before attempting this
      */
-    void cleanupAfterRepairOnNode(LocalRepairState repairState, RepairStatus finalState)
+    void cleanupAfterRepairOnNode(LocalRepairState repairState, TaskStatus finalState)
     {
         List<RepairMetadata> repairHistory = daoManager.getRepairStatusDao()
                                                        .getRepairHistory(repairState.repairId,
@@ -951,7 +602,7 @@ public class RepairController
             {
                 rm.setLastEvent("Notification Lost Reason", "Finished repair but lost RepairRunner");
                 rm.setEndTime(DateTime.now().toDate());
-                rm.setStatus(RepairStatus.NOTIFS_LOST);
+                rm.setStatus(TaskStatus.NOTIFS_LOST);
                 daoManager.getRepairStatusDao().markRepairStatusChange(rm);
             }
         }
@@ -966,65 +617,8 @@ public class RepairController
         daoManager.getRepairSequenceDao().markNodeDone(repairState.repairId, repairState.sequence.getSeq(), finalState);
     }
 
-    void cancelRepairOnNode()
-    {
-        cassInteraction.cancelAllRepairs();
-    }
-
-    /**
-     * Moves the cluster repair process either from STARTED to REPAIR_HOOK_RUNNING or
-     * moves REPAIR_HOOK_RUNNING to FINISHED if all hooks are done. If the cluster is now FINISHED
-     *
-     * @param repairState LocalRepairState
-     * @return true indicates the cluster is now FINISHED. false indicates the cluster is
-     * either already REPAIR_HOOK_RUNNING (and is not done), is PAUSED, or is already FINISHED.
-     */
-    boolean finishClusterRepair(LocalRepairState repairState)
-    {
-        int repairId = repairState.repairId;
-        Optional<ClusterRepairStatus> clusterStatus = daoManager.getRepairProcessDao()
-                                                                .getClusterRepairStatus(repairId);
-
-        if (!clusterStatus.isPresent())
-            throw new IllegalStateException("Cluster status can't be missing at this stage");
-
-        RepairStatus clusterRepairStatus = clusterStatus.get().getRepairStatus();
-
-        if (clusterRepairStatus == RepairStatus.REPAIR_HOOK_RUNNING ||
-            isPostRepairHookExists(repairState.sequence.getScheduleName()))
-        {
-
-            if (clusterRepairStatus == RepairStatus.STARTED)
-            {
-                daoManager.getRepairProcessDao().updateClusterRepairStatus(
-                clusterStatus.get().setRepairId(repairId)
-                             .setRepairStatus(RepairStatus.REPAIR_HOOK_RUNNING)
-                );
-            }
-            // TODO: timeout the repair hook if it gets stuck ...
-            else if (clusterRepairStatus == RepairStatus.REPAIR_HOOK_RUNNING &&
-                     isPostRepairHookCompleteOnCluster(repairId))
-            {
-                daoManager.getRepairProcessDao().markClusterRepairFinished(repairId);
-                return true;
-            }
-        }
-        else
-        {
-            logger.info("Since repair is done on all nodes and there are no post repair hooks scheduled, marking cluster repair as FINISHED");
-            daoManager.getRepairProcessDao().markClusterRepairFinished(repairId);
-            return true;
-        }
-        return false;
-    }
-
-    public IRepairStatusDao getRepairStatusDao()
+    IRepairStatusDao getRepairStatusDao()
     {
         return daoManager.getRepairStatusDao();
-    }
-
-    public IRepairConfigDao getRepairConfigDao()
-    {
-        return daoManager.getRepairConfigDao();
     }
 }

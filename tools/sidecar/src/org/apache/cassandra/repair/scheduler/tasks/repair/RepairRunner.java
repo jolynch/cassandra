@@ -1,4 +1,22 @@
-package org.apache.cassandra.repair.scheduler;
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package org.apache.cassandra.repair.scheduler.tasks.repair;
 
 import java.text.SimpleDateFormat;
 import java.util.Collections;
@@ -22,10 +40,10 @@ import com.codahale.metrics.Timer;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.repair.RepairParallelism;
-import org.apache.cassandra.repair.scheduler.config.RepairSchedulerContext;
+import org.apache.cassandra.repair.scheduler.config.TaskSchedulerContext;
 import org.apache.cassandra.repair.scheduler.entity.RepairMetadata;
-import org.apache.cassandra.repair.scheduler.entity.RepairStatus;
-import org.apache.cassandra.repair.scheduler.entity.TableRepairConfig;
+import org.apache.cassandra.repair.scheduler.entity.TaskStatus;
+import org.apache.cassandra.repair.scheduler.entity.TableTaskConfig;
 import org.apache.cassandra.repair.scheduler.metrics.RepairSchedulerMetrics;
 import org.apache.cassandra.utils.concurrent.SimpleCondition;
 import org.apache.cassandra.utils.progress.ProgressEvent;
@@ -41,9 +59,9 @@ class RepairRunner implements Callable<Boolean>, NotificationListener
 
     private final Condition progress = new SimpleCondition();
     private final Condition globalProgress;
-    private final RepairSchedulerContext context;
+    private final TaskSchedulerContext context;
     private final RepairSchedulerMetrics metrics;
-    private final RepairController repairController;
+    private final RepairTask repairTask;
     private final int secondsToWait;
     private final String keyspace;
     private final String table;
@@ -59,20 +77,20 @@ class RepairRunner implements Callable<Boolean>, NotificationListener
     private Timer.Context repairTimingContext;
 
 
-    RepairRunner(int repairId, TableRepairConfig tableRepairConfig, Range<Token> range,
-                 RepairSchedulerContext context, RepairSchedulerMetrics metrics,
-                 RepairController repairController, Condition globalProgress)
+    RepairRunner(int repairId, TableTaskConfig tableTaskConfig, Range<Token> range,
+                 TaskSchedulerContext context, RepairSchedulerMetrics metrics,
+                 RepairTask repairTask, Condition globalProgress)
     {
         this.range = range;
         this.context = context;
         this.metrics = metrics;
-        this.repairController = repairController;
-        this.secondsToWait = tableRepairConfig.getRepairOptions().getSecondsToWait();
-        this.keyspace = tableRepairConfig.getKeyspace();
-        this.table = tableRepairConfig.getName();
-        this.repairParallelism = tableRepairConfig.getRepairOptions().getParallelism();
-        this.fullRepair = !tableRepairConfig.isIncremental();
-        this.schedule = tableRepairConfig.getSchedule();
+        this.repairTask = repairTask;
+        this.secondsToWait = tableTaskConfig.getRepairOptions().getSecondsToWait();
+        this.keyspace = tableTaskConfig.getKeyspace();
+        this.table = tableTaskConfig.getName();
+        this.repairParallelism = tableTaskConfig.getRepairOptions().getParallelism();
+        this.fullRepair = !tableTaskConfig.isIncremental();
+        this.schedule = tableTaskConfig.getSchedule();
         this.globalProgress = progress;
 
         repairMetadata = new RepairMetadata();
@@ -82,9 +100,9 @@ class RepairRunner implements Callable<Boolean>, NotificationListener
                       .setClusterName(context.getCassInteraction().getClusterName())
                       .setNodeId(context.getCassInteraction().getLocalHostId())
                       .setStartToken(range.left.toString())
-                      .setRepairConfig(tableRepairConfig)
+                      .setRepairConfig(tableTaskConfig)
                       .setEndToken(range.right.toString())
-                      .setStatus(RepairStatus.STARTED)
+                      .setStatus(TaskStatus.STARTED)
         ;
     }
 
@@ -113,7 +131,7 @@ class RepairRunner implements Callable<Boolean>, NotificationListener
                 // The notification listener can actually beat us to this, since that
                 // uses an upsert, we can just not run this upsert before or after and it should still work
                 repairMetadata.setRepairNum(cmd);
-                repairController.getRepairStatusDao().markRepairStatusChange(repairMetadata);
+                repairTask.getRepairStatusDao().markRepairStatusChange(repairMetadata);
             }
             handleRepairResult(cmd);
         }
@@ -126,12 +144,12 @@ class RepairRunner implements Callable<Boolean>, NotificationListener
                                                  .getRepairWaitForHealthyInMs(schedule));
             repairMetadata.setRepairNum(-1)
                           .setStartTime(DateTime.now().toDate())
-                          .setStatus(RepairStatus.FAILED)
+                          .setStatus(TaskStatus.FAILED)
                           .setEndTime(DateTime.now().toDate())
                           .setLastEvent("Failed on " + keyspace + "." + table + " " + range,
                                         "Timed out waiting for token range health");
 
-            repairController.getRepairStatusDao().markRepairStatusChange(repairMetadata);
+            repairTask.getRepairStatusDao().markRepairStatusChange(repairMetadata);
         }
     }
 
@@ -160,14 +178,14 @@ class RepairRunner implements Callable<Boolean>, NotificationListener
         else if (cmd == 0)
         {
             logger.info("Repair Command [{}] returned with code zero, indicating a RF=1 column family", cmd);
-            recordRepairResult(RepairStatus.FINISHED, "Repair Command returned with zero code, indicating RF=1");
+            recordRepairResult(TaskStatus.FINISHED, "Repair Command returned with zero code, indicating RF=1");
             metrics.incNumTimesRepairCompleted();
         }
         else
         {
             success = false;
             metrics.incNumTimesRepairFailed();
-            recordRepairResult(RepairStatus.FAILED, "Repair Command returned with code " + cmd);
+            recordRepairResult(TaskStatus.FAILED, "Repair Command returned with code " + cmd);
 
             logger.warn("Repair Command [{}] was returned, nothing to repair with given parameters. Possible causes, Given range is incorrect, No data in the given range, given KS and CF exists, ReplicationFactor is <2", cmd);
         }
@@ -203,7 +221,7 @@ class RepairRunner implements Callable<Boolean>, NotificationListener
             {
                 error = e;
             }
-            recordRepairResult(RepairStatus.FAILED, "Encountered exception: " + e.toString());
+            recordRepairResult(TaskStatus.FAILED, "Encountered exception: " + e.toString());
             throw e;
         }
     }
@@ -216,7 +234,7 @@ class RepairRunner implements Callable<Boolean>, NotificationListener
             int iterations = 0;
             while (true)
             {
-                if (repairController.areNeighborsHealthy(this.keyspace, this.range))
+                if (repairTask.areNeighborsHealthy(this.keyspace, this.range))
                 {
                     return true;
                 }
@@ -253,7 +271,7 @@ class RepairRunner implements Callable<Boolean>, NotificationListener
         return result;
     }
 
-    private void recordRepairResult(RepairStatus status, String event)
+    private void recordRepairResult(TaskStatus status, String event)
     {
         repairTimingContext.stop();
         boolean markedStatusChange;
@@ -277,7 +295,7 @@ class RepairRunner implements Callable<Boolean>, NotificationListener
                     break;
             }
 
-            markedStatusChange = repairController.getRepairStatusDao().markRepairStatusChange(repairMetadata);
+            markedStatusChange = repairTask.getRepairStatusDao().markRepairStatusChange(repairMetadata);
         }
 
 
@@ -311,11 +329,11 @@ class RepairRunner implements Callable<Boolean>, NotificationListener
             logger.debug(message);
             if (event.getType() == ProgressEventType.ERROR || event.getType() == ProgressEventType.ABORT)
             {
-                recordRepairResult(RepairStatus.FAILED, "Received ProgressEventType " + event.getType().toString());
+                recordRepairResult(TaskStatus.FAILED, "Received ProgressEventType " + event.getType().toString());
             }
             else if (event.getType() == ProgressEventType.SUCCESS)
             {
-                recordRepairResult(RepairStatus.FINISHED, "Received ProgressEventType " + event.getType().toString());
+                recordRepairResult(TaskStatus.FINISHED, "Received ProgressEventType " + event.getType().toString());
             }
         }
         else if (JMXConnectionNotification.NOTIFS_LOST.equals(notification.getType()))
@@ -323,7 +341,7 @@ class RepairRunner implements Callable<Boolean>, NotificationListener
             String message = String.format("[%s] Lost notification. You should check server log for repair status of keyspace %s",
                                            format.format(notification.getTimeStamp()), keyspace);
             logger.warn(message);
-            recordRepairResult(RepairStatus.NOTIFS_LOST, "Lost JMX connection");
+            recordRepairResult(TaskStatus.NOTIFS_LOST, "Lost JMX connection");
         }
         else if (JMXConnectionNotification.FAILED.equals(notification.getType())
                  || JMXConnectionNotification.CLOSED.equals(notification.getType()))
@@ -331,7 +349,7 @@ class RepairRunner implements Callable<Boolean>, NotificationListener
             String message = String.format("[%s] JMX connection closed. You should check server log for repair status of keyspace %s",
                                            format.format(notification.getTimeStamp()), keyspace);
             logger.warn(message);
-            recordRepairResult(RepairStatus.NOTIFS_LOST, "JMX connection closed ");
+            recordRepairResult(TaskStatus.NOTIFS_LOST, "JMX connection closed ");
         }
     }
 }

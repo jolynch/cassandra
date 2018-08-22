@@ -32,7 +32,7 @@ public class RepairSequence implements Comparable<RepairSequence>
     private Date startTime;
     private Date endTime;
     private Date pauseTime;
-    private RepairStatus status;
+    private TaskStatus status;
     private Date lastHeartbeat;
     private String scheduleName;
     private Map<String, String> lastEvent;
@@ -135,13 +135,13 @@ public class RepairSequence implements Comparable<RepairSequence>
         return this;
     }
 
-    public RepairStatus getStatus()
+    public TaskStatus getStatus()
     {
         return status;
     }
 
 
-    public RepairSequence setStatus(RepairStatus status)
+    public RepairSequence setStatus(TaskStatus status)
     {
         this.status = status;
         return this;
@@ -149,7 +149,7 @@ public class RepairSequence implements Comparable<RepairSequence>
 
     public RepairSequence setStatus(String status)
     {
-        this.status = RepairStatus.valueOf(status);
+        this.status = TaskStatus.valueOf(status);
         return this;
     }
 

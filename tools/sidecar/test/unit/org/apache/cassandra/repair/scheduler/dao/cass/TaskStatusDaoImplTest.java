@@ -19,7 +19,6 @@
 package org.apache.cassandra.repair.scheduler.dao.cass;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -30,10 +29,10 @@ import org.apache.cassandra.repair.scheduler.EmbeddedUnitTestBase;
 import org.apache.cassandra.repair.scheduler.dao.model.IRepairSequenceDao;
 import org.apache.cassandra.repair.scheduler.dao.model.IRepairStatusDao;
 import org.apache.cassandra.repair.scheduler.entity.RepairMetadata;
-import org.apache.cassandra.repair.scheduler.entity.RepairStatus;
-import org.apache.cassandra.repair.scheduler.entity.TableRepairConfig;
+import org.apache.cassandra.repair.scheduler.entity.TaskStatus;
+import org.apache.cassandra.repair.scheduler.entity.TableTaskConfig;
 
-public class RepairStatusDaoImplTest extends EmbeddedUnitTestBase
+public class TaskStatusDaoImplTest extends EmbeddedUnitTestBase
 {
     private IRepairStatusDao repairStatusDao;
     private String hostId;
@@ -62,7 +61,7 @@ public class RepairStatusDaoImplTest extends EmbeddedUnitTestBase
         repairStatusDao.markRepairStatusChange(repairMetadata);
         List<RepairMetadata> result = repairStatusDao.getRepairHistory(repairMetadata.getRepairId());
         Assert.assertEquals(1, result.size());
-        Assert.assertEquals(RepairStatus.STARTED, result.get(0).getStatus());
+        Assert.assertEquals(TaskStatus.STARTED, result.get(0).getStatus());
     }
 
     @Test
@@ -72,7 +71,7 @@ public class RepairStatusDaoImplTest extends EmbeddedUnitTestBase
         repairStatusDao.markRepairStatusChange(repairMetadata);
         List<RepairMetadata> result = repairStatusDao.getRepairHistory(repairMetadata.getRepairId());
         Assert.assertEquals(1, result.size());
-        Assert.assertEquals(RepairStatus.PAUSED, result.get(0).getStatus());
+        Assert.assertEquals(TaskStatus.PAUSED, result.get(0).getStatus());
     }
 
     @Test
@@ -83,7 +82,7 @@ public class RepairStatusDaoImplTest extends EmbeddedUnitTestBase
         repairStatusDao.markRepairStatusChange(repairMetadata);
         List<RepairMetadata> result = repairStatusDao.getRepairHistory(repairMetadata.getRepairId());
         Assert.assertEquals(1, result.size());
-        Assert.assertEquals(RepairStatus.FAILED, result.get(0).getStatus());
+        Assert.assertEquals(TaskStatus.FAILED, result.get(0).getStatus());
     }
 
     @Test
@@ -94,7 +93,7 @@ public class RepairStatusDaoImplTest extends EmbeddedUnitTestBase
         repairStatusDao.markRepairStatusChange(repairMetadata);
         List<RepairMetadata> result = repairStatusDao.getRepairHistory(repairMetadata.getRepairId());
         Assert.assertEquals(1, result.size());
-        Assert.assertEquals(RepairStatus.FINISHED, result.get(0).getStatus());
+        Assert.assertEquals(TaskStatus.FINISHED, result.get(0).getStatus());
     }
 
     @Test
@@ -115,13 +114,13 @@ public class RepairStatusDaoImplTest extends EmbeddedUnitTestBase
 
         List<RepairMetadata> result = repairStatusDao.getRepairHistory(repairMetadata.getRepairId());
         Assert.assertEquals(1, result.size());
-        Assert.assertEquals(RepairStatus.STARTED, result.get(0).getStatus());
+        Assert.assertEquals(TaskStatus.STARTED, result.get(0).getStatus());
         Assert.assertEquals(hostId, result.get(0).getNodeId());
 
         Assert.assertTrue("Failed to change the repair status to CANCELLED", repairStatusDao.markRepairCancelled(repairMetadata.getRepairId(), hostId));
         result = repairStatusDao.getRepairHistory(repairMetadata.getRepairId());
         Assert.assertEquals(1, result.size());
-        Assert.assertEquals(RepairStatus.CANCELLED, result.get(0).getStatus());
+        Assert.assertEquals(TaskStatus.CANCELLED, result.get(0).getStatus());
     }
 
     @Test
@@ -137,14 +136,14 @@ public class RepairStatusDaoImplTest extends EmbeddedUnitTestBase
 
             result = repairStatusDao.getRepairHistory(repairMetadata.getRepairId());
             Assert.assertEquals(i+1, result.size());
-            Assert.assertEquals(RepairStatus.STARTED, result.get(i).getStatus());
+            Assert.assertEquals(TaskStatus.STARTED, result.get(i).getStatus());
             Assert.assertEquals(hostId, result.get(i).getNodeId());
         }
 
         Assert.assertTrue("Failed to change the repair status to CANCELLED", repairStatusDao.markRepairCancelled(repairId, hostId));
         result = repairStatusDao.getRepairHistory(repairId);
         Assert.assertEquals(5, result.size());
-        Assert.assertEquals(RepairStatus.CANCELLED, result.get(3).getStatus());
+        Assert.assertEquals(TaskStatus.CANCELLED, result.get(3).getStatus());
     }
 
     private RepairMetadata generateRepairMetadata(String hostId)
@@ -153,7 +152,7 @@ public class RepairStatusDaoImplTest extends EmbeddedUnitTestBase
         String testKS = "TestKS_" + nextRandomPositiveInt();
         String testTable = "TestTable_" + nextRandomPositiveInt();
 
-        TableRepairConfig repairConfig = new TableRepairConfig(getContext().getConfig(), "default");
+        TableTaskConfig repairConfig = new TableTaskConfig(getContext().getConfig(), "default");
         repairConfig.setKeyspace(testKS).setName(testTable);
 
         repairMetadata.setClusterName(TEST_CLUSTER_NAME)

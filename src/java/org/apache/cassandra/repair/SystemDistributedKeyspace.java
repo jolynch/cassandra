@@ -140,6 +140,7 @@ public final class SystemDistributedKeyspace
                 + "end_time        timestamp,"
                 + "pause_time      timestamp,"
                 + "status          text,"
+                + "schedule_name   text,"
                 + "last_event      map<text, text>,"
                 + "PRIMARY KEY (cluster_name, repair_id)) "
                 + "WITH CLUSTERING ORDER BY (repair_id DESC) "
@@ -220,7 +221,7 @@ public final class SystemDistributedKeyspace
           "    parallelism text," +
           "    hooks list<text>," +
           "    split_strategy text," +
-          "    interrepair_delay_minutes int," +
+          "    intertask_delay_minutes int," +
           "    PRIMARY KEY ((cluster_name), schedule_name, keyspace_name, table_name)" +
           ") WITH CLUSTERING ORDER BY (schedule_name ASC, keyspace_name ASC, table_name ASC )" +
           "AND compaction = {'class': 'LeveledCompactionStrategy'}");

@@ -3,7 +3,6 @@ package org.apache.cassandra.repair.scheduler.conn;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.repair.RepairParallelism;
 import org.apache.cassandra.repair.scheduler.EmbeddedUnitTestBase;
 import org.apache.cassandra.repair.scheduler.entity.RepairSplitStrategy;
 import org.apache.cassandra.repair.scheduler.entity.TableRepairRangeContext;

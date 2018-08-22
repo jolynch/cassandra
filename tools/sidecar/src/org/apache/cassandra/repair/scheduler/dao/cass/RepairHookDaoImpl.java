@@ -30,23 +30,23 @@ import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Statement;
 import com.datastax.driver.core.querybuilder.QueryBuilder;
-import org.apache.cassandra.repair.scheduler.config.RepairSchedulerConfig;
-import org.apache.cassandra.repair.scheduler.config.RepairSchedulerContext;
+import org.apache.cassandra.repair.scheduler.config.TaskSchedulerConfig;
+import org.apache.cassandra.repair.scheduler.config.TaskSchedulerContext;
 import org.apache.cassandra.repair.scheduler.conn.CassandraInteraction;
 import org.apache.cassandra.repair.scheduler.dao.model.IRepairHookDao;
 import org.apache.cassandra.repair.scheduler.entity.RepairMetadata;
-import org.apache.cassandra.repair.scheduler.entity.RepairStatus;
+import org.apache.cassandra.repair.scheduler.entity.TaskStatus;
 import org.joda.time.DateTime;
 
 public class RepairHookDaoImpl implements IRepairHookDao
 {
     private static final Logger logger = LoggerFactory.getLogger(RepairHookDaoImpl.class);
 
-    private final RepairSchedulerConfig config;
+    private final TaskSchedulerConfig config;
     private final CassandraInteraction cassInteraction;
     private final CassDaoUtil daoUtil;
 
-    public RepairHookDaoImpl(RepairSchedulerContext context, CassDaoUtil daoUtil)
+    public RepairHookDaoImpl(TaskSchedulerContext context, CassDaoUtil daoUtil)
     {
         this.daoUtil = daoUtil;
         this.config = context.getConfig();
@@ -63,7 +63,7 @@ public class RepairHookDaoImpl implements IRepairHookDao
                                                 .value("cluster_name", this.cassInteraction.getClusterName())
                                                 .value("repair_id", repairId)
                                                 .value("node_id", this.cassInteraction.getLocalHostId())
-                                                .value("status", RepairStatus.STARTED.toString())
+                                                .value("status", TaskStatus.STARTED.toString())
                                                 .value("start_time", DateTime.now().toDate())
                                                 .value("created_node_id", this.cassInteraction.getLocalHostId());
 
@@ -78,7 +78,7 @@ public class RepairHookDaoImpl implements IRepairHookDao
     }
 
     @Override
-    public boolean markLocalPostRepairHookEnd(int repairId, RepairStatus status, Map<String, Boolean> hookSuccess)
+    public boolean markLocalPostRepairHookEnd(int repairId, TaskStatus status, Map<String, Boolean> hookSuccess)
     {
         logger.info("Marking Cluster Post Repair Hook {} for repair Id: {} ", status, repairId);
 

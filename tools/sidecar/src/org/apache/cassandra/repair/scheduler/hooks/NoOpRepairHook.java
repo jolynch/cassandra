@@ -22,7 +22,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.repair.scheduler.conn.CassandraInteraction;
-import org.apache.cassandra.repair.scheduler.entity.TableRepairConfig;
+import org.apache.cassandra.repair.scheduler.entity.TableTaskConfig;
 
 /**
  * This is a No-Op repair hook, this is catch all scenario. Ideally should not executed in PROD.
@@ -40,7 +40,7 @@ public class NoOpRepairHook implements IRepairHook
     }
 
     @Override
-    public void run(CassandraInteraction interaction, TableRepairConfig tableConfig)
+    public void run(CassandraInteraction interaction, TableTaskConfig tableConfig)
     {
         logger.warn("{} logger has been executed. Is this expected?", this.getName());
     }

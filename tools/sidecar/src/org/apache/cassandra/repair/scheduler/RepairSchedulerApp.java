@@ -26,7 +26,7 @@ import java.net.UnknownHostException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.cassandra.repair.scheduler.entity.TableRepairConfig;
+import org.apache.cassandra.repair.scheduler.entity.TableTaskConfig;
 import org.apache.cassandra.utils.FBUtilities;
 
 import static org.apache.cassandra.repair.scheduler.api.RepairSchedulerApiUtil.addRepairSchedulerHeaders;
@@ -65,7 +65,7 @@ public class RepairSchedulerApp
         get(PATH + "/hello", (req, res) -> "Helo, I am from cassandra_trunk sidecar");
 
         post(PATH + "/config/:schedule", (req, res) ->
-                                         getInstance().updateRepairConfig(getParamSchedule(req), deserializeJson(TableRepairConfig.class, req.body())));
+                                         getInstance().updateRepairConfig(getParamSchedule(req), deserializeJson(TableTaskConfig.class, req.body())));
 
         get(PATH + "/config", (req, res) -> getInstance().getRepairConfig());
 

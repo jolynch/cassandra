@@ -24,31 +24,31 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class ClusterRepairStatusTest
+public class ClusterTaskStatusTest
 {
-    private static final Logger logger = LoggerFactory.getLogger(ClusterRepairStatusTest.class);
+    private static final Logger logger = LoggerFactory.getLogger(ClusterTaskStatusTest.class);
     public volatile int count;
 
     @Test
     public void getRepairDurationInMin() throws Exception
     {
         int minutes = 5;
-        ClusterRepairStatus clusterRepairStatus = new ClusterRepairStatus();
+        ClusterTaskStatus clusterTaskStatus = new ClusterTaskStatus();
 
         DateTime now = DateTime.now();
-        clusterRepairStatus.setStartTime(now.toDate()).setEndTime(now.minusMinutes(minutes).toDate());
+        clusterTaskStatus.setStartTime(now.toDate()).setEndTime(now.minusMinutes(minutes).toDate());
 
-        Assert.assertEquals("EndDate in Past", minutes, clusterRepairStatus.getRepairDurationInMin());
-
-        now = DateTime.now();
-        clusterRepairStatus.setStartTime(now.toDate()).setEndTime(now.toDate());
-
-        Assert.assertEquals("EndDate and StartDate are same", 0, clusterRepairStatus.getRepairDurationInMin());
+        Assert.assertEquals("EndDate in Past", minutes, clusterTaskStatus.getTaskDurationInMinutes());
 
         now = DateTime.now();
-        clusterRepairStatus.setStartTime(now.minusMinutes(minutes).toDate()).setEndTime(now.toDate());
+        clusterTaskStatus.setStartTime(now.toDate()).setEndTime(now.toDate());
 
-        Assert.assertEquals("StartDate in Past", minutes, clusterRepairStatus.getRepairDurationInMin());
+        Assert.assertEquals("EndDate and StartDate are same", 0, clusterTaskStatus.getTaskDurationInMinutes());
+
+        now = DateTime.now();
+        clusterTaskStatus.setStartTime(now.minusMinutes(minutes).toDate()).setEndTime(now.toDate());
+
+        Assert.assertEquals("StartDate in Past", minutes, clusterTaskStatus.getTaskDurationInMinutes());
     }
 
     @Test

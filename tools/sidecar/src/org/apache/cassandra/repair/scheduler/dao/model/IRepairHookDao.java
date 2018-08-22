@@ -22,7 +22,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.apache.cassandra.repair.scheduler.entity.RepairMetadata;
-import org.apache.cassandra.repair.scheduler.entity.RepairStatus;
+import org.apache.cassandra.repair.scheduler.entity.TaskStatus;
 
 /**
  * Interface to manage repair hook metadata status (started, finished etc.,)
@@ -58,5 +58,5 @@ public interface IRepairHookDao
      * @param hookSuccess Hook(s) status
      * @return boolean indicating the result of operation
      */
-    boolean markLocalPostRepairHookEnd(int repairId, RepairStatus status, Map<String, Boolean> hookSuccess);
+    boolean markLocalPostRepairHookEnd(int repairId, TaskStatus status, Map<String, Boolean> hookSuccess);
 }

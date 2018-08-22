@@ -19,7 +19,7 @@
 package org.apache.cassandra.repair.scheduler.hooks;
 
 import org.apache.cassandra.repair.scheduler.conn.CassandraInteraction;
-import org.apache.cassandra.repair.scheduler.entity.TableRepairConfig;
+import org.apache.cassandra.repair.scheduler.entity.TableTaskConfig;
 
 /**
  * Pluggable Repair Hooks. Performs post repair actions.
@@ -43,6 +43,6 @@ public interface IRepairHook
      * @param tableConfig TableConfig object
      * @throws Exception Exception in executing post repair hook
      */
-    void run(CassandraInteraction interaction, TableRepairConfig tableConfig) throws Exception;
+    void run(CassandraInteraction interaction, TableTaskConfig tableConfig) throws Exception;
 }
 

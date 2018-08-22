@@ -22,11 +22,11 @@ import com.datastax.driver.core.Session;
 import org.apache.cassandra.repair.scheduler.conn.CassandraInteraction;
 
 /**
- * RepairSchedulerContext holds C* session object to repairing cluster, config object
+ * TaskSchedulerContext holds C* session object to repairing cluster, config object
  * and C* interaction object. RepairScheduler needs these objects in many places,
  * instead of constructing them and passing them around, this Context class makes the life easier to access these objects
  */
-public interface RepairSchedulerContext
+public interface TaskSchedulerContext
 {
     /**
      * Cassandra session object to repair state persistence cluster
@@ -36,11 +36,11 @@ public interface RepairSchedulerContext
     Session localSession();
 
     /**
-     * Returns the RepairSchedulerConfig object
+     * Returns the TaskSchedulerConfig object
      *
-     * @return RepairSchedulerConfig
+     * @return TaskSchedulerConfig
      */
-    RepairSchedulerConfig getConfig();
+    TaskSchedulerConfig getConfig();
 
     /**
      * Returns CassandraInteraction object

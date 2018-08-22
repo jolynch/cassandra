@@ -20,12 +20,12 @@ package org.apache.cassandra.repair.scheduler.dao.cass;
 
 import org.apache.cassandra.repair.RepairParallelism;
 import org.apache.cassandra.repair.scheduler.EmbeddedUnitTestBase;
-import org.apache.cassandra.repair.scheduler.config.RepairSchedulerContext;
+import org.apache.cassandra.repair.scheduler.config.TaskSchedulerContext;
 import org.apache.cassandra.repair.scheduler.dao.model.IRepairConfigDao;
 import org.apache.cassandra.repair.scheduler.entity.RepairOptions;
 import org.apache.cassandra.repair.scheduler.entity.RepairSplitStrategy;
 import org.apache.cassandra.repair.scheduler.entity.RepairType;
-import org.apache.cassandra.repair.scheduler.entity.TableRepairConfig;
+import org.apache.cassandra.repair.scheduler.entity.TableTaskConfig;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -40,10 +40,10 @@ public class RepairConfigDaoImplTest extends EmbeddedUnitTestBase
     @Before
     public void beforeMethod()
     {
-        RepairSchedulerContext context = getContext();
+        TaskSchedulerContext context = getContext();
         repairConfigDao = new RepairConfigDaoImpl(context, getCassDaoUtil());
 
-        TableRepairConfig testConfig = new TableRepairConfig(context.getConfig(), context.getConfig().getDefaultSchedule());
+        TableTaskConfig testConfig = new TableTaskConfig(context.getConfig(), context.getConfig().getDefaultSchedule());
         RepairOptions options = testConfig.getRepairOptions();
 
         options.setNumWorkers(17)
@@ -62,7 +62,7 @@ public class RepairConfigDaoImplTest extends EmbeddedUnitTestBase
     @Test
     public void getRepairConfigs()
     {
-        List<TableRepairConfig> repairConfigs = repairConfigDao.getRepairConfigs( "default");
+        List<TableTaskConfig> repairConfigs = repairConfigDao.getRepairConfigs("default");
         Assert.assertEquals(1, repairConfigs.size());
         Assert.assertEquals(RepairParallelism.SEQUENTIAL, repairConfigs.get(0).getRepairOptions().getParallelism());
         Assert.assertEquals(RepairSplitStrategy.Strategy.PARTITION, repairConfigs.get(0).getRepairOptions().getSplitStrategy().getStrategy());

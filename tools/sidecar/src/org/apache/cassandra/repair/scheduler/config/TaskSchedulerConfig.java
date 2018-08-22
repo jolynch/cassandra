@@ -27,11 +27,11 @@ import com.datastax.driver.core.ConsistencyLevel;
 /**
  * A class that contains configuration properties for the RepairScheduler on the node
  */
-public class RepairSchedulerConfig
+public class TaskSchedulerConfig
 {
     public volatile boolean repair_scheduler_enabled = true;
 
-    public int repair_api_port = 7198;
+    public int task_api_port = 7198;
 
     public String cassandra_interaction_class = "org.apache.cassandra.repair.scheduler.conn.Cass4xInteraction";
 
@@ -39,9 +39,9 @@ public class RepairSchedulerConfig
 
     public int local_jmx_port = 7199;
 
-    public List<String> repair_state_persistence_endpoints = Collections.singletonList("127.0.0.1:9042");
+    public List<String> task_state_persistence_endpoints = Collections.singletonList("127.0.0.1:9042");
 
-    public String repair_native_endpoint = "127.0.0.1:9042";
+    public String task_native_endpoint = "127.0.0.1:9042";
 
     public int jmx_connection_monitor_period_in_ms = 60000;
 
@@ -55,7 +55,7 @@ public class RepairSchedulerConfig
 
     public ConsistencyLevel write_cl = ConsistencyLevel.LOCAL_QUORUM;
 
-    public String repair_keyspace = "system_distributed";
+    public String task_keyspace = "system_distributed";
 
     public String repair_sequence_tablename = "repair_sequence";
 
@@ -91,7 +91,7 @@ public class RepairSchedulerConfig
 
     public int getRepairAPIPort()
     {
-        return repair_api_port;
+        return task_api_port;
     }
 
     public String getCassandraInteractionClass()
@@ -131,7 +131,7 @@ public class RepairSchedulerConfig
 
     public String getRepairKeyspace()
     {
-        return repair_keyspace;
+        return task_keyspace;
     }
 
     public String getRepairSequenceTableName()
@@ -174,6 +174,11 @@ public class RepairSchedulerConfig
         return default_schedules;
     }
 
+    public Map<String, ScheduleConfig> getScheduleConfigs()
+    {
+        return schedules;
+    }
+
     /**
      * Gets default schedule, v1 only supports 1 schedule.
      *
@@ -184,19 +189,19 @@ public class RepairSchedulerConfig
         return default_schedules.get(0);
     }
 
+    public String getTaskName(String schedule)
+    {
+        return schedules.get(schedule).task_name;
+    }
+
     public int getRepairTimeoutInS(String schedule)
     {
-        return schedules.get(schedule).repair_timeout_in_s;
+        return schedules.get(schedule).task_timeout_in_s;
     }
 
     public int getDefaultRepairTimeoutInS()
     {
-        return schedules.get(default_schedules.get(0)).repair_timeout_in_s;
-    }
-
-    public String getRepairType(String schedule)
-    {
-        return schedules.get(schedule).repair_type;
+        return schedules.get(default_schedules.get(0)).task_timeout_in_s;
     }
 
     public int getWorkers(String schedule)
@@ -209,33 +214,18 @@ public class RepairSchedulerConfig
         return schedules.get(schedule).hooks;
     }
 
-    public String getParallelism(String schedule)
+    public int getIntertaskDelayMinutes(String schedule)
     {
-        return schedules.get(schedule).parallelism;
-    }
-
-    public String getSplitStrategy(String schedule)
-    {
-        return schedules.get(schedule).split_strategy;
-    }
-
-    public int getInterrepairDelayMinutes(String schedule)
-    {
-        return schedules.get(schedule).interrepair_delay_minutes;
-    }
-
-    public int getRepairWaitForHealthyInMs(String schedule)
-    {
-        return schedules.get(schedule).repair_wait_for_healthy_in_ms;
+        return schedules.get(schedule).intertask_delay_minutes;
     }
 
     public List<String> getRepairStatePersistenceEndpoints()
     {
-        return repair_state_persistence_endpoints;
+        return task_state_persistence_endpoints;
     }
 
     public String getRepairNativeEndpoint()
     {
-        return repair_native_endpoint;
+        return task_native_endpoint;
     }
 }

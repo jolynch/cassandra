@@ -28,9 +28,9 @@ import org.junit.Test;
 import com.datastax.driver.core.TableMetadata;
 import com.datastax.driver.core.TableOptionsMetadata;
 import org.apache.cassandra.repair.scheduler.EmbeddedUnitTestBase;
-import org.apache.cassandra.repair.scheduler.config.RepairSchedulerContext;
+import org.apache.cassandra.repair.scheduler.config.TaskSchedulerContext;
 import org.apache.cassandra.repair.scheduler.conn.CassandraInteraction;
-import org.apache.cassandra.repair.scheduler.entity.TableRepairConfig;
+import org.apache.cassandra.repair.scheduler.entity.TableTaskConfig;
 import org.mockito.Mockito;
 
 import static org.mockito.Mockito.doReturn;
@@ -48,7 +48,7 @@ public class CompactSTCSRepairHookTest extends EmbeddedUnitTestBase
     {
         context = getContext();
         //Mock-Spy
-        RepairSchedulerContext contextSpy = Mockito.spy(context);
+        TaskSchedulerContext contextSpy = Mockito.spy(context);
         interactionSpy = Mockito.spy(context.getCassInteraction());
         when(contextSpy.getCassInteraction()).thenReturn(interactionSpy);
     }
@@ -59,14 +59,14 @@ public class CompactSTCSRepairHookTest extends EmbeddedUnitTestBase
         CompactSTCSRepairHook repairHook = new CompactSTCSRepairHook();
 
         TableMetadata tblMetadata = context.localSession().getCluster().getMetadata().getKeyspace(REPAIR_SCHEDULER_KS_NAME).getTable("repair_config");
-        TableRepairConfig tableRepairConfig = new TableRepairConfig(context.getConfig(),
-                                                                    context.getConfig().getDefaultSchedule());
+        TableTaskConfig tableTaskConfig = new TableTaskConfig(context.getConfig(),
+                                                              context.getConfig().getDefaultSchedule());
 
         TableMetadata tblMetadataSpy = Mockito.spy(tblMetadata);
         TableOptionsMetadata optionsSpy = Mockito.spy(tblMetadataSpy.getOptions());
 
-        tableRepairConfig.setKeyspace(REPAIR_SCHEDULER_KS_NAME).setName("repair_config")
-                         .setTableMetadata(tblMetadataSpy);
+        tableTaskConfig.setKeyspace(REPAIR_SCHEDULER_KS_NAME).setName("repair_config")
+                       .setTableMetadata(tblMetadataSpy);
 
         Map<String, String> tblOptions = new HashMap<>();
         tblOptions.put("class", "SizeTiredCompactionStrategy");
@@ -74,7 +74,7 @@ public class CompactSTCSRepairHookTest extends EmbeddedUnitTestBase
         doReturn(optionsSpy).when(tblMetadataSpy).getOptions();
         doReturn(tblOptions).when(optionsSpy).getCompaction();
 
-        repairHook.run(this.interactionSpy, tableRepairConfig);
+        repairHook.run(this.interactionSpy, tableTaskConfig);
 
         verify(this.interactionSpy, times(1)).triggerCompaction(REPAIR_SCHEDULER_KS_NAME, "repair_config");
 
@@ -86,12 +86,12 @@ public class CompactSTCSRepairHookTest extends EmbeddedUnitTestBase
         CompactSTCSRepairHook repairHook = new CompactSTCSRepairHook();
 
         TableMetadata tblMetadata = context.localSession().getCluster().getMetadata().getKeyspace(REPAIR_SCHEDULER_KS_NAME).getTable("repair_config");
-        TableRepairConfig tableRepairConfig = new TableRepairConfig(context.getConfig(),
-                                                                    context.getConfig().getDefaultSchedule())
+        TableTaskConfig tableTaskConfig = new TableTaskConfig(context.getConfig(),
+                                                              context.getConfig().getDefaultSchedule())
                                               .setKeyspace(REPAIR_SCHEDULER_KS_NAME).setName("repair_config")
                                               .setTableMetadata(tblMetadata);
 
-        repairHook.run(this.interactionSpy, tableRepairConfig);
+        repairHook.run(this.interactionSpy, tableTaskConfig);
 
         verify(this.interactionSpy, never()).triggerCompaction(REPAIR_SCHEDULER_KS_NAME, "repair_config");
 
@@ -101,12 +101,12 @@ public class CompactSTCSRepairHookTest extends EmbeddedUnitTestBase
     public void verifyNullMetadata_RepirHook_Compaction() throws Exception
     {
         CompactSTCSRepairHook repairHook = new CompactSTCSRepairHook();
-        TableRepairConfig tableRepairConfig = new TableRepairConfig(context.getConfig(),
-                                                                    context.getConfig().getDefaultSchedule())
-                                              .setPostRepairHooks(Collections.singletonList("COMPACTION"))
+        TableTaskConfig tableTaskConfig = new TableTaskConfig(context.getConfig(),
+                                                              context.getConfig().getDefaultSchedule())
+                                              .setPostTaskHooks(Collections.singletonList("COMPACTION"))
                                               .setKeyspace(REPAIR_SCHEDULER_KS_NAME).setName("repair_config");
 
-        repairHook.run(this.interactionSpy, tableRepairConfig);
+        repairHook.run(this.interactionSpy, tableTaskConfig);
 
         verify(this.interactionSpy, times(0)).triggerCompaction(REPAIR_SCHEDULER_KS_NAME, "repair_config");
 

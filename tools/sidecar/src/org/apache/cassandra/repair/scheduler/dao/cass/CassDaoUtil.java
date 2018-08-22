@@ -24,14 +24,14 @@ import com.datastax.driver.core.ConsistencyLevel;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.Statement;
-import org.apache.cassandra.repair.scheduler.config.RepairSchedulerConfig;
+import org.apache.cassandra.repair.scheduler.config.TaskSchedulerConfig;
 
 public class CassDaoUtil
 {
     private final Supplier<Session> repairSession;
-    private final RepairSchedulerConfig config;
+    private final TaskSchedulerConfig config;
 
-    public CassDaoUtil(RepairSchedulerConfig config, Supplier<Session> repairSession)
+    public CassDaoUtil(TaskSchedulerConfig config, Supplier<Session> repairSession)
     {
         this.repairSession = repairSession;
         this.config = config;

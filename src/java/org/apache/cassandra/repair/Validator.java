@@ -396,7 +396,7 @@ public class Validator implements Runnable
 
     /**
      * Called when some error during the validation happened.
-     * This sends RepairStatus to inform the initiator that the validation has failed.
+     * This sends TaskStatus to inform the initiator that the validation has failed.
      * The actual reason for failure should be looked up in the log of the host calling this function.
      */
     public void fail()

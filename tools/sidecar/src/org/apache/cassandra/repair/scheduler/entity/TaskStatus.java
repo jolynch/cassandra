@@ -18,11 +18,10 @@
 
 package org.apache.cassandra.repair.scheduler.entity;
 
-import org.apache.commons.lang3.StringUtils;
-
-public enum RepairStatus {
+public enum TaskStatus
+{
     // Transitional States
-    NOT_STARTED("NOT_STARTED"), STARTED("STARTED"), PAUSED("PAUSED"), REPAIR_HOOK_RUNNING("REPAIR_HOOK_RUNNING"),
+    NOT_STARTED("NOT_STARTED"), STARTED("STARTED"), PAUSED("PAUSED"), HOOK_RUNNING("HOOK_RUNNING"),
     // Complete failure
     NOTIFS_LOST("NOTIFS_LOST"), FAILED("FAILED"), CANCELLED("CANCELLED"),
     // Complete success
@@ -30,14 +29,14 @@ public enum RepairStatus {
 
     private final String status;
 
-    RepairStatus(String status)
+    TaskStatus(String status)
     {
         this.status = status;
     }
 
     public boolean readyToStartNew()
     {
-        return this == RepairStatus.FINISHED;
+        return this == TaskStatus.FINISHED;
     }
 
     public boolean isStarted()
@@ -57,7 +56,7 @@ public enum RepairStatus {
 
     public boolean isCompleted()
     {
-        if (StringUtils.isBlank(status))
+        if (status.isEmpty())
         {
             return false;
         }
@@ -92,9 +91,9 @@ public enum RepairStatus {
         return this == FAILED;
     }
 
-    public boolean isRepairHookRunning()
+    public boolean isHookRunning()
     {
-        return this == REPAIR_HOOK_RUNNING;
+        return this == HOOK_RUNNING;
     }
 
 }

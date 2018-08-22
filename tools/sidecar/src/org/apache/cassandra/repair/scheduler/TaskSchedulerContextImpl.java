@@ -25,9 +25,9 @@ import org.slf4j.LoggerFactory;
 
 import com.datastax.driver.core.Session;
 import org.apache.cassandra.exceptions.ConfigurationException;
-import org.apache.cassandra.repair.scheduler.config.RepairSchedulerConfig;
+import org.apache.cassandra.repair.scheduler.config.TaskSchedulerConfig;
 import org.apache.cassandra.repair.scheduler.config.RepairSchedulerConfigurationLoader;
-import org.apache.cassandra.repair.scheduler.config.RepairSchedulerContext;
+import org.apache.cassandra.repair.scheduler.config.TaskSchedulerContext;
 import org.apache.cassandra.repair.scheduler.config.RepairSchedulerYamlConfigLoader;
 import org.apache.cassandra.repair.scheduler.conn.Cass4xInteraction;
 import org.apache.cassandra.repair.scheduler.conn.CassandraInteraction;
@@ -37,19 +37,19 @@ import org.apache.cassandra.utils.FBUtilities;
 import static org.apache.cassandra.repair.scheduler.RepairUtil.initSession;
 
 /**
- * RepairSchedulerContext holds C* session object to repairing cluster, config object
+ * TaskSchedulerContext holds C* session object to repairing cluster, config object
  * and C* interaction object. RepairScheduler needs these objects in many places,
  * instead of constructing them and passing them around, this Context class makes the life easier to access these objects
  */
-public class RepairSchedulerContextImpl implements RepairSchedulerContext
+public class TaskSchedulerContextImpl implements TaskSchedulerContext
 {
-    private static final Logger logger = LoggerFactory.getLogger(RepairSchedulerContextImpl.class);
+    private static final Logger logger = LoggerFactory.getLogger(TaskSchedulerContextImpl.class);
 
-    private final RepairSchedulerConfig config;
+    private final TaskSchedulerConfig config;
     private CassandraInteraction cassandraInteraction;
     private Session localSession;
 
-    public RepairSchedulerContextImpl()
+    public TaskSchedulerContextImpl()
     {
         this.config = loadConfig();
     }
@@ -71,12 +71,12 @@ public class RepairSchedulerContextImpl implements RepairSchedulerContext
     }
 
     /**
-     * Returns the RepairSchedulerConfig object
+     * Returns the TaskSchedulerConfig object
      *
-     * @return RepairSchedulerConfig
+     * @return TaskSchedulerConfig
      */
     @Override
-    public RepairSchedulerConfig getConfig()
+    public TaskSchedulerConfig getConfig()
     {
         return config;
     }
@@ -100,10 +100,10 @@ public class RepairSchedulerContextImpl implements RepairSchedulerContext
      * Loads config using YamlConfig Loader. It can also load custom config loaders set via "repair.config.loader"
      * system property.
      *
-     * @return RepairSchedulerConfig
+     * @return TaskSchedulerConfig
      * @throws ConfigurationException If there are issues in loading configuration
      */
-    private RepairSchedulerConfig loadConfig() throws ConfigurationException
+    private TaskSchedulerConfig loadConfig() throws ConfigurationException
     {
         String loaderClass = System.getProperty("repair.config.loader");
         RepairSchedulerConfigurationLoader loader = loaderClass == null
@@ -122,7 +122,7 @@ public class RepairSchedulerContextImpl implements RepairSchedulerContext
         try
         {
             Class<CassandraInteractionBase> cls = FBUtilities.classForName(getConfig().getCassandraInteractionClass(), "CassandraInteraction");
-            Constructor<?> constructor = cls.getConstructor(RepairSchedulerConfig.class);
+            Constructor<?> constructor = cls.getConstructor(TaskSchedulerConfig.class);
             logger.info("Constructed class [{}] for CassandraInteraction", getConfig().getCassandraInteractionClass());
             return (CassandraInteraction) constructor.newInstance(getConfig());
         }

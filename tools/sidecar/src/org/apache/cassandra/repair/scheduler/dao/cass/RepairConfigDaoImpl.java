@@ -24,7 +24,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
@@ -34,11 +33,11 @@ import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Statement;
 import com.datastax.driver.core.querybuilder.QueryBuilder;
 import org.apache.cassandra.repair.RepairParallelism;
-import org.apache.cassandra.repair.scheduler.config.RepairSchedulerContext;
+import org.apache.cassandra.repair.scheduler.config.TaskSchedulerContext;
 import org.apache.cassandra.repair.scheduler.dao.model.IRepairConfigDao;
 import org.apache.cassandra.repair.scheduler.entity.RepairOptions;
 import org.apache.cassandra.repair.scheduler.entity.RepairType;
-import org.apache.cassandra.repair.scheduler.entity.TableRepairConfig;
+import org.apache.cassandra.repair.scheduler.entity.TableTaskConfig;
 
 import static org.apache.cassandra.repair.scheduler.RepairUtil.getKsTbName;
 
@@ -46,11 +45,11 @@ public class RepairConfigDaoImpl implements IRepairConfigDao
 {
     private static final Logger logger = LoggerFactory.getLogger(RepairHookDaoImpl.class);
 
-    private final RepairSchedulerContext context;
+    private final TaskSchedulerContext context;
     private static String clusterName;
     private final CassDaoUtil daoUtil;
 
-    public RepairConfigDaoImpl(RepairSchedulerContext context, CassDaoUtil daoUtil)
+    public RepairConfigDaoImpl(TaskSchedulerContext context, CassDaoUtil daoUtil)
     {
         this.daoUtil = daoUtil;
         this.context = context;
@@ -62,9 +61,9 @@ public class RepairConfigDaoImpl implements IRepairConfigDao
      * @return Map of TableRepairConfigs list keyed by schedule name
      */
     @Override
-    public Map<String, List<TableRepairConfig>> getRepairConfigs()
+    public Map<String, List<TableTaskConfig>> getRepairConfigs()
     {
-        Map<String, List<TableRepairConfig>> repairConfigListMap = new HashMap<>();
+        Map<String, List<TableTaskConfig>> repairConfigListMap = new HashMap<>();
         Statement selectQuery = QueryBuilder.select()
                                             .from(context.getConfig().getRepairKeyspace(),
                                                   context.getConfig().getRepairConfigTableName())
@@ -73,19 +72,19 @@ public class RepairConfigDaoImpl implements IRepairConfigDao
         daoUtil.execSelectStmtRepairDb(selectQuery)
                .forEach(row ->
                         {
-                            TableRepairConfig tableRepairConfig = getTableRepairConfig(row);
+                            TableTaskConfig tableTaskConfig = getTableRepairConfig(row);
                             String schedule = row.getString("schedule_name");
                             repairConfigListMap.computeIfAbsent(schedule, k -> new ArrayList<>());
-                            repairConfigListMap.get(schedule).add(tableRepairConfig);
+                            repairConfigListMap.get(schedule).add(tableTaskConfig);
                         });
 
         return repairConfigListMap;
     }
 
     @Override
-    public List<TableRepairConfig> getRepairConfigs(String scheduleName)
+    public List<TableTaskConfig> getRepairConfigs(String scheduleName)
     {
-        List<TableRepairConfig> lstTableRepairConfig = new ArrayList<>();
+        List<TableTaskConfig> lstTableTaskConfig = new ArrayList<>();
         Statement selectQuery = QueryBuilder.select()
                                             .from(context.getConfig().getRepairKeyspace(),
                                                   context.getConfig().getRepairConfigTableName())
@@ -93,11 +92,11 @@ public class RepairConfigDaoImpl implements IRepairConfigDao
                                             .and(QueryBuilder.eq("schedule_name", scheduleName));
 
         daoUtil.execSelectStmtRepairDb(selectQuery).forEach(row -> {
-            TableRepairConfig TableRepairConfig = getTableRepairConfig(row);
-            lstTableRepairConfig.add(TableRepairConfig);
+            TableTaskConfig TableTaskConfig = getTableRepairConfig(row);
+            lstTableTaskConfig.add(TableTaskConfig);
         });
 
-        return lstTableRepairConfig;
+        return lstTableTaskConfig;
     }
 
     @Override
@@ -118,7 +117,7 @@ public class RepairConfigDaoImpl implements IRepairConfigDao
     }
 
     @Override
-    public boolean saveRepairConfig(String schedule, TableRepairConfig repairConfig)
+    public boolean saveRepairConfig(String schedule, TableTaskConfig repairConfig)
     {
         logger.info("Saving Repair Configuration for {}.{}", getClusterName(), schedule);
         try
@@ -131,10 +130,10 @@ public class RepairConfigDaoImpl implements IRepairConfigDao
                                                 .value("table_name", repairConfig.getName())
                                                 .value("parallelism", repairConfig.getRepairOptions().getParallelism().toString())
                                                 .value("type", repairConfig.getRepairOptions().getType().toString())
-                                                .value("interrepair_delay_minutes", repairConfig.getInterRepairDelayMinutes())
+                                                .value("intertask_delay_minutes", repairConfig.getInterRepairDelayMinutes())
                                                 .value("workers", repairConfig.getRepairOptions().getNumWorkers())
                                                 .value("split_strategy", repairConfig.getRepairOptions().getSplitStrategy().toString())
-                                                .value("hooks", repairConfig.getPostRepairHooks());
+                                                .value("hooks", repairConfig.getPostTaskHooks());
 
             daoUtil.execUpsertStmtRepairDb(insertQuery);
         }
@@ -150,11 +149,11 @@ public class RepairConfigDaoImpl implements IRepairConfigDao
      * Gets all repair enabled tables keyed by keyspace.table
      */
     @Override
-    public List<TableRepairConfig> getAllRepairEnabledTables(String scheduleName)
+    public List<TableTaskConfig> getAllRepairEnabledTables(String scheduleName)
     {
         // Get all tables by connecting local C* node and overlay that information with config information from
         // repair_config, using defaults for any tables not found in repair_config.
-        Map<String, TableRepairConfig> returnMap = new HashMap<>();
+        Map<String, TableTaskConfig> returnMap = new HashMap<>();
 
         context.localSession().getCluster().getMetadata()
                .getKeyspaces()
@@ -162,7 +161,7 @@ public class RepairConfigDaoImpl implements IRepairConfigDao
                    if (!isRepairableKeyspace(tableMetadata.getKeyspace().getName()))
                    {
                        String ksTbName = tableMetadata.getKeyspace().getName() + "." + tableMetadata.getName();
-                       TableRepairConfig tableConfig = new TableRepairConfig(context.getConfig(), scheduleName);
+                       TableTaskConfig tableConfig = new TableTaskConfig(context.getConfig(), scheduleName);
 
                        // Repairing or compacting a TWCS or a DTCS is a bad idea, let's not do that.
                        if (!tableMetadata.getOptions().getCompaction()
@@ -178,17 +177,17 @@ public class RepairConfigDaoImpl implements IRepairConfigDao
                }));
 
         // Apply any table specific overrides from the repair config
-        List<TableRepairConfig> allConfigs = getRepairConfigs(scheduleName);
-        for (TableRepairConfig tcDb : allConfigs)
+        List<TableTaskConfig> allConfigs = getRepairConfigs(scheduleName);
+        for (TableTaskConfig tcDb : allConfigs)
         {
-            TableRepairConfig tableConfig = returnMap.get(getKsTbName(tcDb.getKeyspace(), tcDb.getName()));
+            TableTaskConfig tableConfig = returnMap.get(getKsTbName(tcDb.getKeyspace(), tcDb.getName()));
 
             if (null != tableConfig)
             {
                 tableConfig.clone(tcDb);
             }
         }
-        return returnMap.values().stream().filter(TableRepairConfig::isRepairEnabled).collect(Collectors.toList());
+        return returnMap.values().stream().filter(TableTaskConfig::isRepairEnabled).collect(Collectors.toList());
     }
 
     /**
@@ -215,21 +214,21 @@ public class RepairConfigDaoImpl implements IRepairConfigDao
         return row.getColumnDefinitions().contains(columnName) && !row.isNull(columnName);
     }
 
-    private TableRepairConfig getTableRepairConfig(Row row)
+    private TableTaskConfig getTableRepairConfig(Row row)
     {
-        TableRepairConfig tableRepairConfig = new TableRepairConfig(context.getConfig(), row.getString("schedule_name"))
+        TableTaskConfig tableTaskConfig = new TableTaskConfig(context.getConfig(), row.getString("schedule_name"))
                                               .setKeyspace(row.getString("keyspace_name"))
                                               .setName(row.getString("table_name"));
 
-        RepairOptions repairOptions = tableRepairConfig.getRepairOptions();
+        RepairOptions repairOptions = tableTaskConfig.getRepairOptions();
 
         repairOptions.setType(RepairType.fromString(row.getString("type")));
 
-        if (hasColumn(row, "interrepair_delay_minutes"))
-            tableRepairConfig.setInterRepairDelayMinutes(row.getInt("interrepair_delay_minutes"));
+        if (hasColumn(row, "intertask_delay_minutes"))
+            tableTaskConfig.setInterRepairDelayMinutes(row.getInt("intertask_delay_minutes"));
 
         if (hasColumn(row, "hooks"))
-            tableRepairConfig.setPostRepairHooks(row.getList("hooks", String.class));
+            tableTaskConfig.setPostTaskHooks(row.getList("hooks", String.class));
 
         if (hasColumn(row, "parallelism"))
             repairOptions.setParallelism(RepairParallelism.fromName(row.getString("parallelism")));
@@ -248,8 +247,8 @@ public class RepairConfigDaoImpl implements IRepairConfigDao
         if (hasColumn(row, "repair_timeout_seconds"))
             repairOptions.setSecondsToWait(row.getInt("repair_timeout_seconds"));
 
-        tableRepairConfig.setRepairOptions(repairOptions);
-        return tableRepairConfig;
+        tableTaskConfig.setRepairOptions(repairOptions);
+        return tableTaskConfig;
     }
 
     private String getClusterName()

@@ -48,7 +48,7 @@ import org.yaml.snakeyaml.introspector.Property;
 import org.yaml.snakeyaml.introspector.PropertyUtils;
 
 /**
- * RepairSchedulerYamlConfigLoader class loads repair.yaml and constructs {@link RepairSchedulerConfig}.
+ * RepairSchedulerYamlConfigLoader class loads repair.yaml and constructs {@link TaskSchedulerConfig}.
  * Clone of {@link org.apache.cassandra.config.YamlConfigurationLoader}, in ideal world generic version of
  * {@link org.apache.cassandra.config.ConfigurationLoader} makes config loading easier here.
  */
@@ -97,14 +97,14 @@ public class RepairSchedulerYamlConfigLoader implements RepairSchedulerConfigura
     }
 
     @Override
-    public RepairSchedulerConfig loadConfig() throws ConfigurationException
+    public TaskSchedulerConfig loadConfig() throws ConfigurationException
     {
         if (storageConfigURL == null)
             storageConfigURL = getStorageConfigURL();
         return loadConfig(storageConfigURL);
     }
 
-    private RepairSchedulerConfig loadConfig(URL url) throws ConfigurationException
+    private TaskSchedulerConfig loadConfig(URL url) throws ConfigurationException
     {
         try
         {
@@ -120,11 +120,11 @@ public class RepairSchedulerYamlConfigLoader implements RepairSchedulerConfigura
                 throw new AssertionError(e);
             }
 
-            Constructor constructor = new CustomConstructor(RepairSchedulerConfig.class);
+            Constructor constructor = new CustomConstructor(TaskSchedulerConfig.class);
             PropertiesChecker propertiesChecker = new PropertiesChecker();
             constructor.setPropertyUtils(propertiesChecker);
             Yaml yaml = new Yaml(constructor);
-            RepairSchedulerConfig result = loadConfig(yaml, configBytes);
+            TaskSchedulerConfig result = loadConfig(yaml, configBytes);
             propertiesChecker.check();
             return result;
         }
@@ -134,12 +134,12 @@ public class RepairSchedulerYamlConfigLoader implements RepairSchedulerConfigura
         }
     }
 
-    private RepairSchedulerConfig loadConfig(Yaml yaml, byte[] configBytes)
+    private TaskSchedulerConfig loadConfig(Yaml yaml, byte[] configBytes)
     {
-        RepairSchedulerConfig config = yaml.loadAs(new ByteArrayInputStream(configBytes), RepairSchedulerConfig.class);
+        TaskSchedulerConfig config = yaml.loadAs(new ByteArrayInputStream(configBytes), TaskSchedulerConfig.class);
         // If the configuration file is empty yaml will return null. In this case we should use the default
         // configuration to avoid hitting a NPE at a later stage.
-        return config == null ? new RepairSchedulerConfig() : config;
+        return config == null ? new TaskSchedulerConfig() : config;
     }
 
     static class CustomConstructor extends Constructor

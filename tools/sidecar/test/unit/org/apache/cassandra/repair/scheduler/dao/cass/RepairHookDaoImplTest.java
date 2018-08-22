@@ -21,7 +21,8 @@ package org.apache.cassandra.repair.scheduler.dao.cass;
 import org.apache.cassandra.repair.scheduler.EmbeddedUnitTestBase;
 import org.apache.cassandra.repair.scheduler.dao.model.IRepairHookDao;
 import org.apache.cassandra.repair.scheduler.entity.RepairMetadata;
-import org.apache.cassandra.repair.scheduler.entity.RepairStatus;
+import org.apache.cassandra.repair.scheduler.entity.TaskStatus;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -53,28 +54,28 @@ public class RepairHookDaoImplTest extends EmbeddedUnitTestBase
     public void markClusterPostRepairHookStarted()
     {
         Assert.assertTrue(repairHookDao.markLocalPostRepairHookStarted(repairId));
-        Assert.assertEquals(RepairStatus.STARTED, repairHookDao.getLocalRepairHookStatus(repairId, hostId).getStatus());
+        Assert.assertEquals(TaskStatus.STARTED, repairHookDao.getLocalRepairHookStatus(repairId, hostId).getStatus());
     }
 
     @Test
     public void markClusterPostRepairHookCompleted()
     {
-        Assert.assertTrue(repairHookDao.markLocalPostRepairHookEnd(repairId, RepairStatus.FINISHED, Collections.emptyMap()));
-        Assert.assertEquals(RepairStatus.FINISHED, repairHookDao.getLocalRepairHookStatus(repairId, hostId).getStatus());
+        Assert.assertTrue(repairHookDao.markLocalPostRepairHookEnd(repairId, TaskStatus.FINISHED, Collections.emptyMap()));
+        Assert.assertEquals(TaskStatus.FINISHED, repairHookDao.getLocalRepairHookStatus(repairId, hostId).getStatus());
     }
 
     @Test
     public void markClusterPostRepairHookFailed()
     {
-        Assert.assertTrue(repairHookDao.markLocalPostRepairHookEnd(repairId, RepairStatus.FAILED, Collections.emptyMap()));
-        Assert.assertEquals(RepairStatus.FAILED, repairHookDao.getLocalRepairHookStatus(repairId, hostId).getStatus());
+        Assert.assertTrue(repairHookDao.markLocalPostRepairHookEnd(repairId, TaskStatus.FAILED, Collections.emptyMap()));
+        Assert.assertEquals(TaskStatus.FAILED, repairHookDao.getLocalRepairHookStatus(repairId, hostId).getStatus());
     }
 
     @Test
     public void getClusterRepairHookStatus()
     {
-        Assert.assertTrue(repairHookDao.markLocalPostRepairHookEnd(repairId, RepairStatus.FAILED, Collections.emptyMap()));
-        Assert.assertEquals(RepairStatus.FAILED, repairHookDao.getLocalRepairHookStatus(repairId, hostId).getStatus());
+        Assert.assertTrue(repairHookDao.markLocalPostRepairHookEnd(repairId, TaskStatus.FAILED, Collections.emptyMap()));
+        Assert.assertEquals(TaskStatus.FAILED, repairHookDao.getLocalRepairHookStatus(repairId, hostId).getStatus());
     }
 
     @Test
@@ -82,6 +83,6 @@ public class RepairHookDaoImplTest extends EmbeddedUnitTestBase
     {
         Assert.assertTrue(repairHookDao.markLocalPostRepairHookStarted(repairId));
         List<RepairMetadata> statuses = repairHookDao.getLocalRepairHookStatus(repairId);
-        Assert.assertEquals(RepairStatus.STARTED, statuses.get(0).getStatus());
+        Assert.assertEquals(TaskStatus.STARTED, statuses.get(0).getStatus());
     }
 }

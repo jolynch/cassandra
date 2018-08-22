@@ -20,12 +20,12 @@ package org.apache.cassandra.repair.scheduler.dao.model;
 
 import java.util.Optional;
 
-import org.apache.cassandra.repair.scheduler.entity.ClusterRepairStatus;
+import org.apache.cassandra.repair.scheduler.entity.ClusterTaskStatus;
 
 /**
  * Interface to manage repair_process table (Cluster level repair metadata table)
  */
-public interface IRepairProcessDao
+public interface ITaskProcessDao
 {
     /**
      * Gets the latest repair status on the cluster.
@@ -33,15 +33,15 @@ public interface IRepairProcessDao
      *
      * @return Cluster repair status information from repair_process table, this does contain node level repair status
      */
-    Optional<ClusterRepairStatus> getClusterRepairStatus();
+    Optional<ClusterTaskStatus> getClusterRepairStatus();
 
     /**
      * Get the cluster repair status for a given repair id
      *
-     * @param repairId Repair Id to query repair_process table for
+     * @param taskId Repair Id to query repair_process table for
      * @return Cluster repair status information from repair_process table, this does contain node level repair status
      */
-    Optional<ClusterRepairStatus> getClusterRepairStatus(int repairId);
+    Optional<ClusterTaskStatus> getClusterRepairStatus(int taskId);
 
     /**
      * This is the only coordination place in the repair scheduler, Tries to insert a record with local cluster name
@@ -71,8 +71,8 @@ public interface IRepairProcessDao
     /**
      * Updates Cluster repair status for a repair Id in repair_process table
      *
-     * @param clusterRepairStatus repair_process table entry/ row
+     * @param clusterTaskStatus repair_process table entry/ row
      * @return boolean indicating the result of operation
      */
-    boolean updateClusterRepairStatus(ClusterRepairStatus clusterRepairStatus);
+    boolean updateClusterRepairStatus(ClusterTaskStatus clusterTaskStatus);
 }

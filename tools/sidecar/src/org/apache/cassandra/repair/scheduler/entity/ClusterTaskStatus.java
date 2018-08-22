@@ -22,39 +22,51 @@ import java.util.Date;
 import org.joda.time.DateTime;
 import org.joda.time.Minutes;
 
-public class ClusterRepairStatus
+public class ClusterTaskStatus
 {
-    private RepairStatus repairStatus;
-    private int repairId = -1;
+    private TaskStatus taskStatus;
+    private String scheduleName;
+    private int taskId = -1;
     private Date startTime, endTime, pauseTime;
 
-    public RepairStatus getRepairStatus()
+    public TaskStatus getTaskStatus()
     {
-        return repairStatus;
+        return taskStatus;
     }
 
-    public ClusterRepairStatus setRepairStatus(RepairStatus repairStatus)
+    public ClusterTaskStatus setTaskStatus(TaskStatus taskStatus)
     {
-        this.repairStatus = repairStatus;
+        this.taskStatus = taskStatus;
 
         return this;
     }
 
-    public ClusterRepairStatus setRepairStatus(String repairStatus)
+    public ClusterTaskStatus setTaskStatus(String taskStatus)
     {
 
-        this.repairStatus = RepairStatus.valueOf(repairStatus);
+        this.taskStatus = TaskStatus.valueOf(taskStatus);
         return this;
     }
 
-    public int getRepairId()
+    public String getScheduleName()
     {
-        return repairId;
+        return scheduleName;
     }
 
-    public ClusterRepairStatus setRepairId(int repairId)
+    public ClusterTaskStatus setScheduleName(String scheduleName)
     {
-        this.repairId = repairId;
+        this.scheduleName = scheduleName;
+        return this;
+    }
+
+    public int getTaskId()
+    {
+        return taskId;
+    }
+
+    public ClusterTaskStatus setTaskId(int repairId)
+    {
+        this.taskId = repairId;
         return this;
     }
 
@@ -63,7 +75,7 @@ public class ClusterRepairStatus
         return startTime;
     }
 
-    public ClusterRepairStatus setStartTime(Date startTime)
+    public ClusterTaskStatus setStartTime(Date startTime)
     {
         this.startTime = startTime;
         return this;
@@ -74,7 +86,7 @@ public class ClusterRepairStatus
         return endTime;
     }
 
-    public ClusterRepairStatus setEndTime(Date endTime)
+    public ClusterTaskStatus setEndTime(Date endTime)
     {
         this.endTime = endTime;
         return this;
@@ -85,13 +97,13 @@ public class ClusterRepairStatus
         return pauseTime;
     }
 
-    public ClusterRepairStatus setPauseTime(Date pauseTime)
+    public ClusterTaskStatus setPauseTime(Date pauseTime)
     {
         this.pauseTime = pauseTime;
         return this;
     }
 
-    public int getRepairDurationInMin()
+    public int getTaskDurationInMinutes()
     {
         return Math.abs(Minutes.minutesBetween(new DateTime(startTime), new DateTime(endTime)).getMinutes());
     }

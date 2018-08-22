@@ -33,7 +33,7 @@ import org.apache.cassandra.repair.scheduler.EmbeddedUnitTestBase;
 import org.apache.cassandra.repair.scheduler.dao.model.IRepairSequenceDao;
 import org.apache.cassandra.repair.scheduler.entity.RepairHost;
 import org.apache.cassandra.repair.scheduler.entity.RepairSequence;
-import org.apache.cassandra.repair.scheduler.entity.RepairStatus;
+import org.apache.cassandra.repair.scheduler.entity.TaskStatus;
 import org.apache.cassandra.utils.GuidGenerator;
 
 public class RepairSequenceDaoImplTest extends EmbeddedUnitTestBase
@@ -61,7 +61,7 @@ public class RepairSequenceDaoImplTest extends EmbeddedUnitTestBase
         SortedSet<RepairSequence> rSeq = repairSequenceDao.getRepairSequence(repairId);
         Assert.assertEquals(repairId, rSeq.first().getRepairId());
         Assert.assertEquals(Optional.of(222), Optional.of(rSeq.first().getSeq()));
-        Assert.assertEquals(RepairStatus.STARTED, rSeq.first().getStatus());
+        Assert.assertEquals(TaskStatus.STARTED, rSeq.first().getStatus());
     }
 
     @Test
@@ -87,7 +87,7 @@ public class RepairSequenceDaoImplTest extends EmbeddedUnitTestBase
 
         SortedSet<RepairSequence> r = repairSequenceDao.getRepairSequence(repairId);
         Assert.assertEquals(1, r.size());
-        Assert.assertEquals(RepairStatus.CANCELLED, r.first().getStatus());
+        Assert.assertEquals(TaskStatus.CANCELLED, r.first().getStatus());
     }
 
     private List<RepairHost> generateHosts(int n)

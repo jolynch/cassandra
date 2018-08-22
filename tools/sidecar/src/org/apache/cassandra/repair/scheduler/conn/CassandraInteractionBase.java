@@ -2,10 +2,7 @@ package org.apache.cassandra.repair.scheduler.conn;
 
 import java.io.IOException;
 import java.net.MalformedURLException;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
-import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -39,7 +36,7 @@ import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.gms.FailureDetector;
 import org.apache.cassandra.gms.FailureDetectorMBean;
 import org.apache.cassandra.repair.scheduler.RepairUtil;
-import org.apache.cassandra.repair.scheduler.config.RepairSchedulerConfig;
+import org.apache.cassandra.repair.scheduler.config.TaskSchedulerConfig;
 import org.apache.cassandra.service.StorageServiceMBean;
 import org.apache.cassandra.utils.FBUtilities;
 
@@ -57,7 +54,7 @@ import org.apache.cassandra.utils.FBUtilities;
  */
 public abstract class CassandraInteractionBase implements CassandraInteraction, AutoCloseable
 {
-    protected final RepairSchedulerConfig config;
+    protected final TaskSchedulerConfig config;
 
     protected static final Logger logger = LoggerFactory.getLogger(Cass4xInteraction.class);
     // Listener management
@@ -88,7 +85,7 @@ public abstract class CassandraInteractionBase implements CassandraInteraction, 
      *
      * @param config The configuration to use when setting up connections.
      */
-    public CassandraInteractionBase(RepairSchedulerConfig config)
+    public CassandraInteractionBase(TaskSchedulerConfig config)
     {
         this.config = config;
     }

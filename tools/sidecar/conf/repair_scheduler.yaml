@@ -14,7 +14,7 @@ cassandra_interaction_class: "org.apache.cassandra.repair.scheduler.conn.Cass4xI
 local_jmx_address: "127.0.0.1"
 
 # JMX port for C* node, this is configured via -Dcassandra.jmx.local.port when starting C*
-local_jmx_port: 7199
+local_jmx_port: 7100
 
 # The cluster to repair, this native endpoint is used to discover tables needed to repair, splits and other stuff
 # This must be local C* native endpoint, providing non local C* endpoint would lead to unexpected behavior in repair
@@ -79,7 +79,7 @@ heartbeat_period_in_ms: 2000
 
 #The number of seconds to wait for another node to state transition
 # (e.g. generate a sequence, start repair, become healthy, etc …). Set this if you see lots of cancellations.
-repair_process_timeout_in_s: 1800
+task_process_timeout_in_s: 1800
 
 ## Below settings are Schedule based
 
@@ -95,11 +95,12 @@ schedules:
     # that every piece of repair work is of similar size (target ~30 minute pieces of work), this can be tuned
     # using below parameter. Default is 30 minutes. Set this if you see lots of repair cancellations, so technically
     # it is - The number of seconds to wait for a single range repair to make progress.
-    repair_timeout_in_s: 1800
+    task_timeout_in_s: 1800
 
-    # Type of repair to be performed by default when not specified at table level repair configurations.
-    # Allowed values are DISABLED, INCREMENTAL, FULL. Default is FULL
-    repair_type: "FULL"
+    # The delay between repair runs in minutes. The default value is 24 hours
+    # Use this to “offset” repairs from each other, e.g. if you know that repairs take 2 days,
+    # and you want to repair every 10 days, setting a delay of ~3 days might make sense.
+    intertask_delay_minutes:  1440
 
     # Number of repair workers to run repairs with. Use this before you use parallelism to improve repair speed.
     # Default  = max(1, #cores / 2). Use -1 for auto detecting, positive integer to set the desired value
@@ -111,25 +112,29 @@ schedules:
     # This setting is used only when it is not specified at table level repair configurations.
     hooks: ["CleanupRepairHook"]
 
-    # Specify the degree of parallelism when calculating the merkle trees in a repair job. Allowed values are
-    # sequential, parallel, dc_parallel. Default is sequential
-    # This setting is used only when it is not specified at table level repair configurations.
-    parallelism: "sequential"
+    task_name: 'RepairTask'
 
-    # How to split primary ranges for full repair. Can take the value:[ <integer>, <integer_mb>, <integer>_dry_run,
-    # <integer_mb>_dry_run, adaptive, adaptive_dry_run]. If adaptive, the cluster will automatically determine
-    # an optimal value taking into account balancing overstreaming vs too many small sstables. If one of the integer
-    # values we split ranges either on estimated size or estimated partitions. If any of those versions plus dry run,
-    # no splits are performed but they are included in the resulting repair status entries.
-    # Default value is adaptive
-    split_strategy: "adaptive"
+    task_config:
+      # Type of repair to be performed by default when not specified at table level repair configurations.
+      # Allowed values are DISABLED, INCREMENTAL, FULL. Default is FULL
+      repair_type: "FULL"
 
-    # The delay between repair runs in minutes. The default value is 24 hours
-    # Use this to “offset” repairs from each other, e.g. if you know that repairs take 2 days,
-    # and you want to repair every 10 days, setting a delay of ~3 days might make sense.
-    interrepair_delay_minutes:  1440
+      # How to split primary ranges for full repair. Can take the value:[ <integer>, <integer_mb>, <integer>_dry_run,
+      # <integer_mb>_dry_run, adaptive, adaptive_dry_run]. If adaptive, the cluster will automatically determine
+      # an optimal value taking into account balancing overstreaming vs too many small sstables. If one of the integer
+      # values we split ranges either on estimated size or estimated partitions. If any of those versions plus dry run,
+      # no splits are performed but they are included in the resulting repair status entries.
+      # Default value is adaptive
+      split_strategy: "adaptive"
 
-    # Time to wait for the token range to be healthy before marking the token range repair as FAILED
-    # Default value is 15 min, which means if your C* cluster (token range) is not healthy for more than 15 min,
-    # repair_scheduler would start recording the token range repairs as FAILED
-    repair_wait_for_healthy_in_ms: 900000
+      # Time to wait for the token range to be healthy before marking the token range repair as FAILED
+      # Default value is 15 min, which means if your C* cluster (token range) is not healthy for more than 15 min,
+      # repair_scheduler would start recording the token range repairs as FAILED
+      repair_wait_for_healthy_in_ms: 900000
+
+      # Specify the degree of parallelism when calculating the merkle trees in a repair job. Allowed values are
+      # sequential, parallel, dc_parallel. Default is sequential
+      # This setting is used only when it is not specified at table level repair configurations.
+      parallelism: "sequential"
+
+

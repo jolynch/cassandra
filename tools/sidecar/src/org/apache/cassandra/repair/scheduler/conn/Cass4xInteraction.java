@@ -38,7 +38,7 @@ import org.apache.cassandra.metrics.CassandraMetricsRegistry;
 import org.apache.cassandra.repair.RepairParallelism;
 import org.apache.cassandra.repair.messages.RepairOption;
 import org.apache.cassandra.repair.scheduler.RepairUtil;
-import org.apache.cassandra.repair.scheduler.config.RepairSchedulerConfig;
+import org.apache.cassandra.repair.scheduler.config.TaskSchedulerConfig;
 import org.apache.cassandra.repair.scheduler.entity.RepairSplitStrategy;
 import org.apache.cassandra.repair.scheduler.entity.TableRepairRangeContext;
 import org.apache.cassandra.utils.EstimatedHistogram;
@@ -47,7 +47,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 public class Cass4xInteraction extends CassandraInteractionBase
 {
-    public Cass4xInteraction(RepairSchedulerConfig config)
+    public Cass4xInteraction(TaskSchedulerConfig config)
     {
         super(config);
     }

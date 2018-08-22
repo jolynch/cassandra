@@ -29,18 +29,19 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.repair.scheduler.RepairController;
-import org.apache.cassandra.repair.scheduler.RepairDaoManager;
-import org.apache.cassandra.repair.scheduler.RepairManager;
-import org.apache.cassandra.repair.scheduler.RepairSchedulerContextImpl;
-import org.apache.cassandra.repair.scheduler.config.RepairSchedulerContext;
-import org.apache.cassandra.repair.scheduler.entity.ClusterRepairStatus;
+import org.apache.cassandra.repair.scheduler.TaskDaoManager;
+import org.apache.cassandra.repair.scheduler.TaskManager;
+import org.apache.cassandra.repair.scheduler.TaskSchedulerContextImpl;
+import org.apache.cassandra.repair.scheduler.config.TaskSchedulerContext;
+import org.apache.cassandra.repair.scheduler.entity.ClusterTaskStatus;
 import org.apache.cassandra.repair.scheduler.entity.RepairMetadata;
-import org.apache.cassandra.repair.scheduler.entity.TableRepairConfig;
+import org.apache.cassandra.repair.scheduler.entity.TableTaskConfig;
+import org.apache.cassandra.repair.scheduler.tasks.repair.RepairTask;
 import org.apache.cassandra.utils.NoSpamLogger;
 
 /**
  * RepairSchedulerDaemon is a singleton, which is responsible for running repair scheduler as a daemon.
- * This class holds the scheduled executor which calls repair via RepairManager.
+ * This class holds the scheduled executor which calls repair via TaskManager.
  * All nodes periodically (e.g. every 2 minutes) wake up and enter state (A), where they determine if there
  * is a currently running repair via the repair_process table.
  * This class also holds the glue between REST API and repair controller/ daos.
@@ -50,9 +51,9 @@ public class RepairSchedulerDaemon
 {
     private static final Logger logger = LoggerFactory.getLogger(RepairSchedulerDaemon.class);
     private static RepairSchedulerDaemon instance;
-    private final RepairSchedulerContext context;
-    private final RepairController repairController;
-    private final RepairManager repairManager;
+    private final TaskSchedulerContext context;
+    private final RepairTask repairController;
+    private final TaskManager taskManager;
     // Instead of calling C* - JMX clusterName on every call, we could cache it here and reuse and sure enough
     // cluster name does not change the during the life cycle of sidecar/ repair scheduler
     private String clusterName;
@@ -62,10 +63,10 @@ public class RepairSchedulerDaemon
      */
     private RepairSchedulerDaemon()
     {
-        this.context = new RepairSchedulerContextImpl();
-        final RepairDaoManager daoManager = new RepairDaoManager(context);
-        this.repairController = new RepairController(context, daoManager);
-        this.repairManager = new RepairManager(context);
+        this.context = new TaskSchedulerContextImpl();
+        final TaskDaoManager daoManager = new TaskDaoManager(context);
+        this.repairController = new RepairTask(context, daoManager);
+        this.taskManager = new TaskManager(context);
 
         int initialDelayInMin = ThreadLocalRandom.current().nextInt(1, 5);
         logger.info("Scheduling Repair Scheduler sidecar with a 2 min interval task with initial delay of {} minutes", initialDelayInMin);
@@ -87,11 +88,11 @@ public class RepairSchedulerDaemon
     }
 
     /**
-     * Gets RepairSchedulerContext
+     * Gets TaskSchedulerContext
      *
-     * @return RepairSchedulerContext
+     * @return TaskSchedulerContext
      */
-    public RepairSchedulerContext getContext()
+    public TaskSchedulerContext getContext()
     {
         return context;
     }
@@ -103,10 +104,10 @@ public class RepairSchedulerDaemon
      */
     public List<RepairMetadata> getRepairStatus()
     {
-        Optional<ClusterRepairStatus> crs = repairController.getClusterRepairStatus();
+        Optional<ClusterTaskStatus> crs = repairController.getClusterRepairStatus();
         return crs
                .map(clusterRepairStatus -> repairController.getRepairStatusDao()
-                                                           .getRepairHistory(clusterRepairStatus.getRepairId()))
+                                                           .getRepairHistory(clusterRepairStatus.getTaskId()))
                .orElse(null);
     }
 
@@ -136,7 +137,7 @@ public class RepairSchedulerDaemon
      *
      * @return Map of TableRepairConfigs list keyed by schedule name
      */
-    public Map<String, List<TableRepairConfig>> getRepairConfig()
+    public Map<String, List<TableTaskConfig>> getRepairConfig()
     {
         return repairController.getRepairConfigDao().getRepairConfigs();
     }
@@ -147,7 +148,7 @@ public class RepairSchedulerDaemon
      * @param schedule Schedule name to get table repair configs for
      * @return return repair configs list
      */
-    public List<TableRepairConfig> getRepairConfig(String schedule)
+    public List<TableTaskConfig> getRepairConfig(String schedule)
     {
         return repairController.getRepairConfigDao().getRepairConfigs(schedule);
     }
@@ -159,7 +160,7 @@ public class RepairSchedulerDaemon
      * @param config   TableConfig
      * @return boolean indicating the update operation result
      */
-    public boolean updateRepairConfig(String schedule, TableRepairConfig config)
+    public boolean updateRepairConfig(String schedule, TableTaskConfig config)
     {
         Set<String> validSchedules = repairController.getRepairConfigDao().getAllRepairSchedules();
         if (validSchedules.contains(schedule))
@@ -179,7 +180,7 @@ public class RepairSchedulerDaemon
     public boolean stopRepair()
     {
         logger.info("Stopping Repair Scheduler");
-        repairManager.pauseRepairOnCluster();
+        taskManager.pauseTasksOnCluster();
         getContext().getConfig().setRepairSchedulerEnabled(false);
         return true;
     }
@@ -212,7 +213,7 @@ public class RepairSchedulerDaemon
     }
 
     /**
-     * Repair Scheduler runnable to call repairManager.runRepairOnCluster() periodically. This checks for
+     * Repair Scheduler runnable to call taskManager.runRepairOnCluster() periodically. This checks for
      * repairScheduleEnabled property before starting runRepairOnCluster.
      * This uses NoSpamLogger to avoid excessive logging as this code path gets executed every 2 min.
      */
@@ -226,7 +227,7 @@ public class RepairSchedulerDaemon
             {
                 NoSpamLogger.log(logger, NoSpamLogger.Level.WARN, 24, TimeUnit.HOURS,
                                  "Repair scheduler is enabled on this instance.");
-                repairManager.runRepairOnCluster();
+                taskManager.runRepairOnCluster();
             }
             else
             {

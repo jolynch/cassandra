@@ -18,6 +18,8 @@
 
 package org.apache.cassandra.repair.scheduler;
 
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -38,8 +40,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Condition;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.FutureCallback;
@@ -53,44 +53,81 @@ import org.slf4j.LoggerFactory;
 import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.repair.scheduler.config.RepairSchedulerContext;
-import org.apache.cassandra.repair.scheduler.entity.ClusterRepairStatus;
+import org.apache.cassandra.repair.scheduler.config.TaskSchedulerContext;
+import org.apache.cassandra.repair.scheduler.config.TaskSchedulerConfig;
+import org.apache.cassandra.repair.scheduler.entity.ClusterTaskStatus;
 import org.apache.cassandra.repair.scheduler.entity.LocalRepairState;
 import org.apache.cassandra.repair.scheduler.entity.NodeStatus;
 import org.apache.cassandra.repair.scheduler.entity.RepairSequence;
-import org.apache.cassandra.repair.scheduler.entity.RepairStatus;
-import org.apache.cassandra.repair.scheduler.entity.TableRepairConfig;
+import org.apache.cassandra.repair.scheduler.entity.TaskStatus;
+import org.apache.cassandra.repair.scheduler.entity.TableTaskConfig;
 import org.apache.cassandra.repair.scheduler.hooks.IRepairHook;
 import org.apache.cassandra.repair.scheduler.hooks.RepairHookManager;
 import org.apache.cassandra.repair.scheduler.metrics.RepairSchedulerMetrics;
+import org.apache.cassandra.repair.scheduler.tasks.BaseTask;
+import org.apache.cassandra.repair.scheduler.tasks.IManagementTask;
 import org.apache.cassandra.utils.concurrent.SimpleCondition;
 import org.joda.time.DateTime;
 
-public class RepairManager
+public class TaskManager
 {
-    private static final Logger logger = LoggerFactory.getLogger(RepairManager.class);
+    private static final Logger logger = LoggerFactory.getLogger(TaskManager.class);
     private static final int REPAIR_THREAD_CNT = Runtime.getRuntime().availableProcessors();
 
-    private final RepairSchedulerContext context;
-    private final RepairController repairController;
+    private final TaskSchedulerContext context;
+    Map<String, IManagementTask> tasks;
     private final ListeningScheduledExecutorService executorService;
     private final Set<Future> repairFutures = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean hasRepairInitiated = new AtomicBoolean(false);
     private final AtomicBoolean hasHookInitiated = new AtomicBoolean(false);
 
+    // This changes every time that a task is chosen to execute
+    private volatile IManagementTask currentTask;
+
+    /**
+     * Gets repairHook from class name
+     *
+     * @param taskClassName class name for the distributed task hook, it could be fully qualified class name or
+     *                            simple class name
+     * @return RepairHook if the classname matches with any class path
+     */
+    @SuppressWarnings("unchecked")
+    static Optional<IManagementTask> constructTask(String taskClassName, TaskSchedulerContext context)
+    {
+        try
+        {
+            if (!taskClassName.contains("."))
+                taskClassName = "org.apache.cassandra.repair.scheduler.tasks." + taskClassName;
+
+            Class<? extends BaseTask> klass = (Class<? extends BaseTask>) Class.forName(taskClassName);
+            Constructor<? extends BaseTask> constructor = klass.getConstructor(TaskSchedulerContext.class, TaskDaoManager.class);
+            return Optional.of(constructor.newInstance(context, new TaskDaoManager(context)));
+        }
+        catch (ClassNotFoundException | NoSuchMethodException | IllegalAccessException | InvocationTargetException | InstantiationException ex)
+        {
+            logger.error("Could not instantiate ManagementTask: [{}] in classpath, hence using No-Op/ null implementation", taskClassName);
+            return Optional.empty();
+        }
+    }
 
     @VisibleForTesting
-    public RepairManager(RepairSchedulerContext context)
+    public TaskManager(TaskSchedulerContext context)
     {
         this.context = context;
+        TaskSchedulerConfig config = context.getConfig();
 
-        repairController = new RepairController(context, new RepairDaoManager(context));
+        for (String schedule: config.getScheduleConfigs().keySet())
+        {
+            Optional<IManagementTask> task = constructTask(config.getTaskName(schedule), context);
+            task.ifPresent(managementTask -> tasks.put(config.getTaskName(schedule), managementTask));
+        }
+
         executorService = MoreExecutors.listeningDecorator(
             Executors.newScheduledThreadPool(REPAIR_THREAD_CNT,
-                                             new NamedThreadFactory("RepairManager"))
+                                             new NamedThreadFactory("TaskManager"))
         );
 
-        logger.info("RepairManager Initialized.");
+        logger.info("TaskManager Initialized.");
     }
 
     /**
@@ -112,17 +149,17 @@ public class RepairManager
         ranRepair = ranHooks = false;
 
         try {
-            repairId = assessCurrentRepair();
+            repairId = assessCurrentTask();
             if (repairId > 0)
             {
-                localState = assessCurrentRepair(repairId);
+                localState = assessCurrentTask(repairId);
                 logger.info("Found local repair state: {}", localState);
                 if (localState.canRepair)
                 {
                     ranRepair = true;
                     logger.info("Starting repair!");
                     heartBeatTimer = scheduleHeartBeat(localState);
-                    doRepair(localState);
+                    doTask(localState);
                 }
                 else
                 {
@@ -148,7 +185,7 @@ public class RepairManager
                 // Cancel just to be extra safe, if we encounter exceptions and a node is running
                 // repair we want to try to cancel any ongoing repairs (to e.g. prevent duplicate
                 // repaired ranges.
-                repairController.cancelRepairOnNode(repairId, localState.sequence, "Exception in RepairManager");
+                currentTask.cancelTaskOnNode(repairId, "Exception in TaskManager", localState.sequence);
             }
         } finally {
             if (ranRepair)
@@ -171,16 +208,16 @@ public class RepairManager
      * Aborts the repair state machine, and if run on the machine running the repair
      * will also immediately cancel repairs
      */
-    public void pauseRepairOnCluster() {
-        int currentRepairId = repairController.getRepairId();
+    public void pauseTasksOnCluster() {
+        int currentTaskId = currentTask.getTaskId();
         // Mark paused prior to canceling any outstanding repairs so that other threads see this sentinel and stop
-        // scheduling new repairs via iRepairController.canRunRepair
-        if (currentRepairId > 0)
+        // scheduling new repairs via iRepairController.canRunTask
+        if (currentTaskId > 0)
         {
-            logger.info("Trying to pause the currently running repair for repairId: {}", currentRepairId);
-            repairController.pauseRepairOnCluster(currentRepairId);
+            logger.info("Trying to pause the currently running currentTask for taskId: {}", currentTaskId);
+            currentTask.pauseTaskOnCluster(currentTaskId);
         } else {
-            logger.info("Repair is not currently running on the cluster, hence nothing to pause.");
+            logger.info("Task is not currently running on the cluster, hence nothing to pause.");
         }
 
         // This has to be synchronized because another thread might be in the middle of scheduling futures. All
@@ -189,7 +226,7 @@ public class RepairManager
         synchronized (repairFutures) {
             repairFutures.stream().filter(Objects::nonNull)
                          .forEach(future -> future.cancel(true));
-            repairController.cancelRepairOnNode();
+            currentTask.cancelTaskOnNode(currentTaskId, "Tasks paused", null);
         }
 
     }
@@ -199,62 +236,62 @@ public class RepairManager
 
 
     // State (A)
-    private int assessCurrentRepair()
+    private int assessCurrentTask()
     {
-        int repairId = -1;
-        Optional<ClusterRepairStatus> crs = repairController.getClusterRepairStatus();
+        int taskId = -1;
+        Optional<ClusterTaskStatus> crs = currentTask.getClusterTaskStatus();
 
         if (!crs.isPresent() || shouldGenerateSequence(crs.get()))
         {
-            int newRepairId = crs.map(clusterRepairStatus -> (clusterRepairStatus.getRepairId() + 1))
-                                 .orElse(1);
-            repairId = generateRepairClusterSequence(newRepairId);
+            int newTaskId = crs.map(clusterRepairStatus -> (clusterRepairStatus.getTaskId() + 1))
+                               .orElse(1);
+            taskId = generateTaskClusterSequence(newTaskId);
         }
-        else if (crs.get().getRepairStatus().isPaused())
+        else if (crs.get().getTaskStatus().isPaused())
         {
             logger.debug("Repair is paused at cluster level since {}", crs.get().getPauseTime());
             return -1;
         }
-        else if (crs.get().getRepairStatus().isStarted())
+        else if (crs.get().getTaskStatus().isStarted())
         {
-            repairId = crs.get().getRepairId();
-            if (repairController.isRepairSequenceGenerationStuckOnCluster(repairId))
+            taskId = crs.get().getTaskId();
+            if (currentTask.isSequenceGenerationStuckOnCluster(taskId))
             {
                 logger.error("Detected that no repair sequence was generated within process_timeout_seconds!");
-                repairController.abortRepairOnCluster(repairId);
+                currentTask.abortTaskOnCluster(taskId);
                 return -1;
             }
         }
-        else if (crs.get().getRepairStatus().isRepairHookRunning())
+        else if (crs.get().getTaskStatus().isHookRunning())
         {
-            repairId = crs.get().getRepairId();
+            taskId = crs.get().getTaskId();
         }
-        logger.info("Found running repairID: {}", repairId);
-        return repairId;
+        logger.info("Found running repairID: {}", taskId);
+        return taskId;
     }
 
     // State (B)
-    private LocalRepairState assessCurrentRepair(int activeRepairId)
+    private LocalRepairState assessCurrentTask(int activeRepairId)
     {
-        if (repairController.isRepairRunningOnCluster(activeRepairId))
+        if (currentTask.isSequenceRunningOnCluster(activeRepairId))
         {
             return new LocalRepairState(activeRepairId, null, false, NodeStatus.RUNNING_ELSEWHERE);
         }
 
-        Optional<RepairSequence> mySeq = repairController.amINextInRepairOrDone(activeRepairId);
+        Optional<RepairSequence> mySeq = currentTask.amINextInSequenceOrDone(activeRepairId);
 
         if (!mySeq.isPresent())
         {
             return new LocalRepairState(activeRepairId, null, false, NodeStatus.NOT_NEXT);
         }
 
-        RepairStatus status = mySeq.get().getStatus();
+        TaskStatus status = mySeq.get().getStatus();
 
-        if (status == RepairStatus.FINISHED)
+        if (status == TaskStatus.FINISHED)
         {
             return new LocalRepairState(activeRepairId, mySeq.get(), false, NodeStatus.I_AM_DONE);
         }
-        else if (status.isCompleted() || status == RepairStatus.NOT_STARTED || status == RepairStatus.STARTED)
+        else if (status.isCompleted() || status == TaskStatus.NOT_STARTED || status == TaskStatus.STARTED)
         {
             if (hasRepairInitiated.compareAndSet(false, true))
                 return new LocalRepairState(activeRepairId, mySeq.get(), true, NodeStatus.NOT_RUNNING);
@@ -284,50 +321,50 @@ public class RepairManager
                                ranRepair);
 
         boolean finished = false;
-        if (repairController.isRepairDoneOnCluster(repairState.repairId) && canRunHooks)
+        if (currentTask.isTaskDoneOnCluster(repairState.repairId) && canRunHooks)
         {
             // This is almost always false
-            finished = repairController.finishClusterRepair(repairState);
+            finished = currentTask.finishClusterRepair(repairState);
         }
 
         // Another thread can't be actively running repair hooks at this time.
         canRunHooks = canRunHooks && hasHookInitiated.compareAndSet(false, true);
         if (canRunHooks)
-            canRunHooks = canRunHooks && repairController.amIReadyForPostRepairHook(repairState.repairId);
+            canRunHooks = canRunHooks && currentTask.amIReadyForPostTaskHook(repairState.repairId);
 
         return !finished && canRunHooks;
     }
 
     // State (D)
-    private boolean shouldGenerateSequence(ClusterRepairStatus clusterRepairStatus)
+    private boolean shouldGenerateSequence(ClusterTaskStatus clusterTaskStatus)
     {
-        if (clusterRepairStatus.getRepairStatus().readyToStartNew())
+        if (clusterTaskStatus.getTaskStatus().readyToStartNew())
         {
-            Map<String, List<TableRepairConfig>> schedules = repairController.getRepairableTablesBySchedule();
+            Map<String, List<TableTaskConfig>> schedules = currentTask.getRepairableTablesBySchedule();
             // We only support a single schedule right now
             if (schedules.size() > 1)
                 throw new RuntimeException(
                     String.format("Repair scheduler only works with one schedule right now found: %s", schedules.keySet())
                 );
 
-            Optional<Map.Entry<String, List<TableRepairConfig>>> schedule = schedules.entrySet().stream().findFirst();
+            Optional<Map.Entry<String, List<TableTaskConfig>>> schedule = schedules.entrySet().stream().findFirst();
             if (schedule.isPresent())
             {
-                List<TableRepairConfig> allTableConfigs = schedule.get().getValue();
+                List<TableTaskConfig> allTableConfigs = schedule.get().getValue();
                 if (allTableConfigs.size() > 0)
                 {
-                    allTableConfigs.sort(Comparator.comparing(TableRepairConfig::getInterRepairDelayMinutes));
-                    DateTime earlierTableRepairDt = new DateTime(clusterRepairStatus.getEndTime()).plusHours(allTableConfigs.get(0).getInterRepairDelayMinutes());
+                    allTableConfigs.sort(Comparator.comparing(TableTaskConfig::getInterRepairDelayMinutes));
+                    DateTime earlierTableRepairDt = new DateTime(clusterTaskStatus.getEndTime()).plusHours(allTableConfigs.get(0).getInterRepairDelayMinutes());
 
                     if (DateTime.now().isAfter(earlierTableRepairDt)
-                        || (clusterRepairStatus.getRepairDurationInMin() + allTableConfigs.get(0).getInterRepairDelayMinutes() * 60 >= 7 * 24 * 60)) //If repair duration time and min delay hours time is making up to more than 7 days, then start repair
+                        || (clusterTaskStatus.getTaskDurationInMinutes() + allTableConfigs.get(0).getInterRepairDelayMinutes() * 60 >= 7 * 24 * 60)) //If repair duration time and min delay hours time is making up to more than 7 days, then start repair
                     {
                         return true;
                     }
                     else
                     {
                         logger.warn("This node has recently repaired and does not need repair at this moment, recent repair completed time: {}," +
-                                    " next potential repair start time: {}", clusterRepairStatus.getEndTime().toString(), earlierTableRepairDt.toString(RepairUtil.DATE_PATTERN));
+                                    " next potential repair start time: {}", clusterTaskStatus.getEndTime().toString(), earlierTableRepairDt.toString(RepairUtil.DATE_PATTERN));
                         return false;
                     }
                 }
@@ -342,31 +379,31 @@ public class RepairManager
     }
 
     // State (D) -> (E)
-    private int generateRepairClusterSequence(int proposedRepairId)
+    private int generateTaskClusterSequence(int proposedTaskId)
     {
-        if (repairController.attemptClusterRepairStart(proposedRepairId))
+        if (currentTask.attemptClusterTaskStart(proposedTaskId))
         {
             // Version 1 of repair scheduler only supports one schedule.
-            repairController.populateEndpointSequenceMap(proposedRepairId, context.getConfig().getDefaultSchedule());
+            currentTask.populateTaskSequence(proposedTaskId, context.getConfig().getDefaultSchedule());
             logger.info("Successfully generated repair sequence for repairId {} with schedule {}",
-                        proposedRepairId, context.getConfig().getDefaultSchedule());
-            return proposedRepairId;
+                        proposedTaskId, context.getConfig().getDefaultSchedule());
+            return proposedTaskId;
         }
         return -1;
     }
 
     // State (F)
-    private void doRepair(final LocalRepairState repairState) throws InterruptedException
+    private void doTask(final LocalRepairState repairState) throws InterruptedException
     {
         int repairId = repairState.repairId;
         RepairSequence seq = repairState.sequence;
         String scheduleName = seq.getScheduleName();
 
-        List<TableRepairConfig> tablesToRepair = repairController.getTablesForRepair(repairId, scheduleName);
-        repairController.prepareForRepairOnNode(repairId, seq);
+        List<TableTaskConfig> tablesToRepair = currentTask.getTablesForRepair(repairId, scheduleName);
+        currentTask.prepareForTaskOnNode(repairId, seq);
 
         Map<String, Integer> tableRetries = new HashMap<>();
-        Queue<TableRepairConfig> tablesToRepairQueue = new LinkedBlockingQueue<>(tablesToRepair.size());
+        Queue<TableTaskConfig> tablesToRepairQueue = new LinkedBlockingQueue<>(tablesToRepair.size());
         tablesToRepairQueue.addAll(tablesToRepair);
         Map<String, List<Range<Token>>> failedRanges = new ConcurrentHashMap<>();
         boolean error = false;
@@ -374,13 +411,13 @@ public class RepairManager
         while (!tablesToRepairQueue.isEmpty())
         {
             boolean needsRetry = true;
-            TableRepairConfig tableToRepair = tablesToRepairQueue.poll();
+            TableTaskConfig tableToRepair = tablesToRepairQueue.poll();
             if (tableToRepair == null || !tableToRepair.isRepairEnabled())
                continue;
 
             failedRanges.putIfAbsent(tableToRepair.getKsTbName(), new ArrayList<>());
 
-            if (repairController.canRunRepair(repairId))
+            if (currentTask.canRunTask(repairId))
             {
                 List<Range<Token>> tableFailedRanges = executeRepair(repairId, tableToRepair);
                 failedRanges.get(tableToRepair.getKsTbName()).addAll(tableFailedRanges);
@@ -409,11 +446,11 @@ public class RepairManager
                                           .mapToInt(List::size).sum();
         error = error || numFailedRanges > 0;
 
-        RepairStatus finalStatus = error ? RepairStatus.FAILED : RepairStatus.FINISHED;
+        TaskStatus finalStatus = error ? TaskStatus.FAILED : TaskStatus.FINISHED;
         logger.debug("Ensuring that all repairs are cleaned up before marking instance complete, finishing with {}",
                      finalStatus);
 
-        repairController.cleanupAfterRepairOnNode(repairState, finalStatus);
+        currentTask.cleanupAfterRepairOnNode(repairState, finalStatus);
 
         if (hasRepairInitiated.compareAndSet(true, false)) {
             logger.debug("Done marking repair completed on node");
@@ -434,12 +471,12 @@ public class RepairManager
         try
         {
             logger.info("Starting post repair hook(s) for repairId: {}", repairId);
-            List<TableRepairConfig> repairHookEligibleTables = repairController.prepareForRepairHookOnNode(seq);
+            List<TableTaskConfig> repairHookEligibleTables = currentTask.prepareForRepairHookOnNode(seq);
 
 
-            for (TableRepairConfig tableConfig : repairHookEligibleTables) {
+            for (TableTaskConfig tableConfig : repairHookEligibleTables) {
                 // Read post repair hook types for the table, Load valid post repair hook types
-                List<IRepairHook> repairHooks = RepairHookManager.getRepairHooks(tableConfig.getPostRepairHooks());
+                List<IRepairHook> repairHooks = RepairHookManager.getRepairHooks(tableConfig.getPostTaskHooks());
 
                 // Run the post repair hooks in the order that was read above in sync fashion
                 // This way users can e.g. cleanup before compacting or vice versa
@@ -447,7 +484,7 @@ public class RepairManager
                     try {
                         logger.info("Starting post repair hook [{}] on table [{}]",
                                     repairHook.getName(), tableConfig.getKsTbName());
-                        boolean success = repairController.runHook(repairHook, tableConfig);
+                        boolean success = currentTask.runHook(repairHook, tableConfig);
                         hookSucceeded.compute(repairHook.getName(),
                                               (key, value) -> value == null ? success : value && success);
                         logger.info("Completed post repair hook [{}] on table [{}], success: [{}]",
@@ -467,7 +504,7 @@ public class RepairManager
             logger.error("Exception during hook", e);
         }
 
-        repairController.cleanupAfterHookOnNode(seq, hookSucceeded);
+        currentTask.cleanupAfterHookOnNode(seq, hookSucceeded);
     }
 
     /*
@@ -483,11 +520,11 @@ public class RepairManager
      * @param tableConfig
      * @return A List of _failed_ token ranges. If the list is empty that means all ranges were repaired.
      */
-    private List<Range<Token>> executeRepair(int repairId, TableRepairConfig tableConfig) throws InterruptedException
+    private List<Range<Token>> executeRepair(int repairId, TableTaskConfig tableConfig) throws InterruptedException
     {
         // Includes both multiple ranges (vnodes) or full repair using subranges.
         // Also automatically handles splits for full vs no splits for incremental
-        final List<Range<Token>> repairRanges = repairController.getRangesForRepair(repairId, tableConfig);
+        final List<Range<Token>> repairRanges = currentTask.getRangesForRepair(repairId, tableConfig);
         if (repairRanges.size() == 0)
             return Collections.emptyList();
 
@@ -517,7 +554,7 @@ public class RepairManager
             // Repair might get paused _mid_ repair so we have to check if the cluster is paused
             // on every RepairRunner generation
             synchronized (repairFutures) {
-                if (repairController.isRepairPausedOnCluster(repairId))
+                if (currentTask.isSequencePausedOnCluster(repairId))
                 {
                     List<Range<Token>> ranges = new ArrayList<>(pendingRepairRanges);
                     ranges.addAll(runningRepairRanges);
@@ -527,7 +564,7 @@ public class RepairManager
 
                 final RepairRunner repairRunner = new RepairRunner(repairId, tableConfig, subRange,
                                                                    context, RepairSchedulerMetrics.instance,
-                                                                   repairController, globalProgress);
+                                                                   currentTask, globalProgress);
 
                 logger.info("Scheduling Repair for [{}] on range {}", tableConfig.getKsTbName(), subRange);
 
@@ -590,7 +627,7 @@ public class RepairManager
             }
             if (timeout) {
                 // Timeout, we should cancel repair so as to not overload the cluster
-                repairController.cancelRepairOnNode();
+                currentTask.cancelRepairOnNode();
                 List<Range<Token>> ranges = new ArrayList<>(pendingRepairRanges);
                 ranges.addAll(runningRepairRanges);
                 ranges.addAll(failedRepairRanges);
@@ -611,7 +648,7 @@ public class RepairManager
         logger.info("Scheduling HeartBeat sent event with initial delay of {} ms and interval of {} ms.", delay,period);
         timer.scheduleAtFixedRate(new TimerTask() {
             public void run() {
-                repairController.publishHeartBeat(repairState.repairId, repairState.sequence.getSeq());
+                currentTask.publishHeartBeat(repairState.repairId, repairState.sequence.getSeq());
             }
         }, delay, period);
         return timer;

@@ -19,7 +19,7 @@
 package org.apache.cassandra.repair.scheduler.entity;
 
 import org.apache.cassandra.repair.scheduler.EmbeddedUnitTestBase;
-import org.apache.cassandra.repair.scheduler.config.RepairSchedulerConfig;
+import org.apache.cassandra.repair.scheduler.config.TaskSchedulerConfig;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -29,7 +29,7 @@ import org.junit.Test;
 public class RepairOptionsTest extends EmbeddedUnitTestBase
 {
 
-    RepairSchedulerConfig config;
+    TaskSchedulerConfig config;
 
     private RepairOptions options;
 

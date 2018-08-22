@@ -18,7 +18,7 @@
 package org.apache.cassandra.repair.scheduler.hooks;
 
 import org.apache.cassandra.repair.scheduler.conn.CassandraInteraction;
-import org.apache.cassandra.repair.scheduler.entity.TableRepairConfig;
+import org.apache.cassandra.repair.scheduler.entity.TableTaskConfig;
 
 /**
  * Performs cleanup after repair
@@ -32,7 +32,7 @@ public class CleanupRepairHook implements IRepairHook
     }
 
     @Override
-    public void run(CassandraInteraction interaction, TableRepairConfig tableConfig)
+    public void run(CassandraInteraction interaction, TableTaskConfig tableConfig)
     {
         interaction.triggerCleanup(0, tableConfig.getKeyspace(), tableConfig.getName());
     }

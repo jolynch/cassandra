@@ -28,7 +28,7 @@ public class RepairSchedulerYamlConfigLoaderTest
     public void loadConfig()
     {
         RepairSchedulerYamlConfigLoader configLoader = new RepairSchedulerYamlConfigLoader();
-        RepairSchedulerConfig config = configLoader.loadConfig();
+        TaskSchedulerConfig config = configLoader.loadConfig();
         assertEquals("system_distributed", config.getRepairKeyspace());
     }
 }

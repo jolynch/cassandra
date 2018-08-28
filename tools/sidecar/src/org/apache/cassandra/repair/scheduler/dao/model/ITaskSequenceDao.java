@@ -23,7 +23,7 @@ import java.util.Optional;
 import java.util.SortedSet;
 
 import org.apache.cassandra.repair.scheduler.entity.RepairHost;
-import org.apache.cassandra.repair.scheduler.entity.RepairSequence;
+import org.apache.cassandra.repair.scheduler.entity.TaskSequence;
 import org.apache.cassandra.repair.scheduler.entity.TaskStatus;
 
 /**
@@ -31,34 +31,34 @@ import org.apache.cassandra.repair.scheduler.entity.TaskStatus;
  * This manages repair status for each node in a cluster. Each node is identified with Sequence number
  * This sequence number might change for every round of repair, so it is not constant for node
  */
-public interface IRepairSequenceDao
+public interface ITaskSequenceDao
 {
     /**
      * Marks the Node repair status as started for a repair Id and sequence
      *
-     * @param repairId Repair Id to mark the status
+     * @param taskId Repair Id to mark the status
      * @param seq      Sequence number to be used in the status update
      * @return boolean indicating the result of this operation
      */
-    boolean markRepairStartedOnInstance(int repairId, int seq);
+    boolean markTaskStartedOnInstance(int taskId, int seq);
 
     /**
      * Marks the Node repair status as finished for a repair Id and sequence
      *
-     * @param repairId Repair Id to mark the status
+     * @param taskId Repair Id to mark the status
      * @param seq      Sequence number to be used in the status update
      * @param status
      * @return boolean indicating the result of this operation
      */
-    boolean markNodeDone(int repairId, int seq, TaskStatus status);
+    boolean markNodeDone(int taskId, int seq, TaskStatus status);
 
     /**
      * Get the node sequence number of local node in a Repair Id
      *
      * @param repairId Repair Id to query for sequence
-     * @return RepairSequence/ repair_sequence table row for local node
+     * @return TaskSequence/ repair_sequence table row for local node
      */
-    Optional<RepairSequence> getMyNodeStatus(int repairId);
+    Optional<TaskSequence> getMyNodeStatus(int repairId);
 
     /**
      * Save sequence numbers for given hosts in a repair id and schedule name.
@@ -77,7 +77,7 @@ public interface IRepairSequenceDao
      * @param repairId Repair Id to get the sequence data for
      * @return Ordered Repair Sequence/ node data, sorting order is based on sequence number
      */
-    SortedSet<RepairSequence> getRepairSequence(int repairId);
+    SortedSet<TaskSequence> getRepairSequence(int repairId);
 
     /**
      * Updates the heartbeat in repair_sequence table. This is critical to find out if the repair is stuck on a node

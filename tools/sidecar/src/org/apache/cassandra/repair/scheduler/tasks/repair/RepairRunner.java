@@ -41,7 +41,7 @@ import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.repair.RepairParallelism;
 import org.apache.cassandra.repair.scheduler.config.TaskSchedulerContext;
-import org.apache.cassandra.repair.scheduler.entity.RepairMetadata;
+import org.apache.cassandra.repair.scheduler.entity.TaskMetadata;
 import org.apache.cassandra.repair.scheduler.entity.TaskStatus;
 import org.apache.cassandra.repair.scheduler.entity.TableTaskConfig;
 import org.apache.cassandra.repair.scheduler.metrics.RepairSchedulerMetrics;
@@ -73,7 +73,7 @@ class RepairRunner implements Callable<Boolean>, NotificationListener
     private int cmd;
     private boolean success = true;
     private volatile Exception error = null;
-    private final RepairMetadata repairMetadata;
+    private final TaskMetadata taskMetadata;
     private Timer.Context repairTimingContext;
 
 
@@ -93,16 +93,16 @@ class RepairRunner implements Callable<Boolean>, NotificationListener
         this.schedule = tableTaskConfig.getSchedule();
         this.globalProgress = progress;
 
-        repairMetadata = new RepairMetadata();
-        repairMetadata.setKeyspaceName(keyspace)
-                      .setTableName(table)
-                      .setRepairId(repairId)
-                      .setClusterName(context.getCassInteraction().getClusterName())
-                      .setNodeId(context.getCassInteraction().getLocalHostId())
-                      .setStartToken(range.left.toString())
-                      .setRepairConfig(tableTaskConfig)
-                      .setEndToken(range.right.toString())
-                      .setStatus(TaskStatus.STARTED)
+        taskMetadata = new TaskMetadata();
+        taskMetadata.setKeyspaceName(keyspace)
+                    .setTableName(table)
+                    .setTaskId(repairId)
+                    .setClusterName(context.getCassInteraction().getClusterName())
+                    .setNodeId(context.getCassInteraction().getLocalHostId())
+                    .setStartToken(range.left.toString())
+                    .setRepairConfig(tableTaskConfig)
+                    .setEndToken(range.right.toString())
+                    .setStatus(TaskStatus.STARTED)
         ;
     }
 
@@ -115,23 +115,23 @@ class RepairRunner implements Callable<Boolean>, NotificationListener
 
     private void runRepair()
     {
-        repairMetadata.setCreatedTime(DateTime.now().toDate());
+        taskMetadata.setCreatedTime(DateTime.now().toDate());
 
         if (waitForHealthy())
         {
             repairTimingContext = metrics.getRepairDuration().time();
             metrics.incNumTimesRepairStarted();
-            repairMetadata.setStartTime(DateTime.now().toDate());
+            taskMetadata.setStartTime(DateTime.now().toDate());
 
             cmd = context.getCassInteraction().triggerRepair(Collections.singletonList(range),
                                                              repairParallelism, fullRepair, keyspace, table);
 
-            synchronized (repairMetadata)
+            synchronized (taskMetadata)
             {
                 // The notification listener can actually beat us to this, since that
                 // uses an upsert, we can just not run this upsert before or after and it should still work
-                repairMetadata.setRepairNum(cmd);
-                repairTask.getRepairStatusDao().markRepairStatusChange(repairMetadata);
+                taskMetadata.setRepairNum(cmd);
+                repairTask.getRepairStatusDao().markTaskStatusChange(taskMetadata);
             }
             handleRepairResult(cmd);
         }
@@ -142,14 +142,14 @@ class RepairRunner implements Callable<Boolean>, NotificationListener
             logger.error("Failed to run repair on [{}].[{}] as token range/neighbours are not healthy, waited [{}] millis before giving up.",
                          keyspace, table, context.getConfig()
                                                  .getRepairWaitForHealthyInMs(schedule));
-            repairMetadata.setRepairNum(-1)
-                          .setStartTime(DateTime.now().toDate())
-                          .setStatus(TaskStatus.FAILED)
-                          .setEndTime(DateTime.now().toDate())
-                          .setLastEvent("Failed on " + keyspace + "." + table + " " + range,
+            taskMetadata.setRepairNum(-1)
+                        .setStartTime(DateTime.now().toDate())
+                        .setStatus(TaskStatus.FAILED)
+                        .setEndTime(DateTime.now().toDate())
+                        .setLastEvent("Failed on " + keyspace + "." + table + " " + range,
                                         "Timed out waiting for token range health");
 
-            repairTask.getRepairStatusDao().markRepairStatusChange(repairMetadata);
+            repairTask.getRepairStatusDao().markTaskStatusChange(taskMetadata);
         }
     }
 
@@ -276,12 +276,12 @@ class RepairRunner implements Callable<Boolean>, NotificationListener
         repairTimingContext.stop();
         boolean markedStatusChange;
 
-        synchronized (repairMetadata)
+        synchronized (taskMetadata)
         {
-            repairMetadata.setRepairNum(cmd)
-                          .setEndTime(DateTime.now().toDate())
-                          .setStatus(status)
-                          .setLastEvent("Complete Reason", event);
+            taskMetadata.setRepairNum(cmd)
+                        .setEndTime(DateTime.now().toDate())
+                        .setStatus(status)
+                        .setLastEvent("Complete Reason", event);
 
             switch (status)
             {
@@ -295,7 +295,7 @@ class RepairRunner implements Callable<Boolean>, NotificationListener
                     break;
             }
 
-            markedStatusChange = repairTask.getRepairStatusDao().markRepairStatusChange(repairMetadata);
+            markedStatusChange = repairTask.getRepairStatusDao().markTaskStatusChange(taskMetadata);
         }
 
 

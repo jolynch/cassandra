@@ -21,35 +21,35 @@ package org.apache.cassandra.repair.scheduler.dao.model;
 import java.util.List;
 import java.util.Map;
 
-import org.apache.cassandra.repair.scheduler.entity.RepairMetadata;
+import org.apache.cassandra.repair.scheduler.entity.TaskMetadata;
 import org.apache.cassandra.repair.scheduler.entity.TaskStatus;
 
 /**
  * Interface to manage repair hook metadata status (started, finished etc.,)
  */
-public interface IRepairHookDao
+public interface ITaskHookDao
 {
     /**
      * Gets local cluster's repair hook statuses across all nodes for a give repair id
-     * @param repairId Repair Id to query the repair hook status for
-     * @return List of {@link RepairMetadata} with repair hook status
+     * @param taskId Repair Id to query the repair hook status for
+     * @return List of {@link TaskMetadata} with repair hook status
      */
-    List<RepairMetadata> getLocalRepairHookStatus(int repairId);
+    List<TaskMetadata> getLocalTaskHookStatus(int taskId);
 
     /**
      * Gets local cluster's repair hook status for a give repair id and node id
-     * @param repairId Repair Id to query the repair hook status for
+     * @param taskId Repair Id to query the repair hook status for
      * @param nodeId Nodes Id to query the repair hook status for
-     * @return {@link RepairMetadata} object with repair hook status
+     * @return {@link TaskMetadata} object with repair hook status
      */
-    RepairMetadata getLocalRepairHookStatus(int repairId, String nodeId);
+    TaskMetadata getLocalTaskHookStatus(int taskId, String nodeId);
 
     /**
      * Marks the post repair hook started for local node with a given repair id
-     * @param repairId Repair Id to mark the repair hook status
+     * @param taskId Repair Id to mark the repair hook status
      * @return boolean indicating the result of operation
      */
-    boolean markLocalPostRepairHookStarted(int repairId);
+    boolean markLocalPostRepairHookStarted(int taskId);
 
     /**
      * Marks the post repair hook ended for local node with a given repair id and hook(s) status

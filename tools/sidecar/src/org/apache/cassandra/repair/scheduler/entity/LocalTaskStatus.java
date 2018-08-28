@@ -18,27 +18,27 @@
 
 package org.apache.cassandra.repair.scheduler.entity;
 
-public class LocalRepairState
+public class LocalTaskStatus
 {
-    public final int repairId;
-    public final RepairSequence sequence;
-    public final boolean canRepair;
+    public final int taskId;
+    public final TaskSequence sequence;
+    public final boolean canRunTask;
     public final NodeStatus nodeStatus;
 
-    public LocalRepairState(int repairId, RepairSequence sequence, boolean canRepair, NodeStatus nodeStatus)
+    public LocalTaskStatus(int taskId, TaskSequence sequence, boolean canRunTask, NodeStatus nodeStatus)
     {
-        this.repairId = repairId;
+        this.taskId = taskId;
         this.sequence = sequence;
-        this.canRepair = canRepair;
+        this.canRunTask = canRunTask;
         this.nodeStatus = nodeStatus;
     }
 
     @Override
     public String toString()
     {
-        return "LocalRepairState{" + "repairId=" + repairId +
+        return "LocalTaskStatus{" + "taskId=" + taskId +
                ", sequence=" + (sequence != null ? sequence.getSeq() : "none") +
-               ", canRepair=" + canRepair +
+               ", canRunTask=" + canRunTask +
                ", nodeStatus=" + nodeStatus +
                '}';
     }

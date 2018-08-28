@@ -123,7 +123,7 @@ public class EmbeddedUnitTestBase
 
     protected class TestTaskSchedulerConfig extends TaskSchedulerConfig
     {
-        public String getRepairKeyspace()
+        public String getTaskKeyspace()
         {
             return "system_distributed";
         }

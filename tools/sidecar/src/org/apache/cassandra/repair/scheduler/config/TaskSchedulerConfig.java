@@ -57,15 +57,15 @@ public class TaskSchedulerConfig
 
     public String task_keyspace = "system_distributed";
 
-    public String repair_sequence_tablename = "repair_sequence";
+    public String task_sequence_tablename = "task_sequence";
 
-    public String repair_process_tablename = "repair_process";
+    public String task_process_tablename = "task_process";
+
+    public String task_table_status_tablename = "task_table_status";
+
+    public String task_hook_sequence_tablename = "task_hook_sequence";
 
     public String repair_config_tablename = "repair_config";
-
-    public String repair_status_tablename = "repair_status";
-
-    public String repairhook_status_tablename = "repair_hook_status";
 
     public int heartbeat_period_in_ms = 2000;
 
@@ -129,34 +129,34 @@ public class TaskSchedulerConfig
         return write_cl;
     }
 
-    public String getRepairKeyspace()
+    public String getTaskKeyspace()
     {
         return task_keyspace;
     }
 
-    public String getRepairSequenceTableName()
+    public String getTaskSequenceTableName()
     {
-        return repair_sequence_tablename;
+        return task_sequence_tablename;
     }
 
-    public String getRepairProcessTableName()
+    public String getTaskProcessTableName()
     {
-        return repair_process_tablename;
+        return task_process_tablename;
+    }
+
+    public String getTaskTableStatusTableName()
+    {
+        return task_table_status_tablename;
+    }
+
+    public String getTableHookSequenceTableName()
+    {
+        return task_hook_sequence_tablename;
     }
 
     public String getRepairConfigTableName()
     {
         return repair_config_tablename;
-    }
-
-    public String getRepairStatusTableName()
-    {
-        return repair_status_tablename;
-    }
-
-    public String getRepairHookStatusTableName()
-    {
-        return repairhook_status_tablename;
     }
 
     public int getHeartbeatPeriodInMs()

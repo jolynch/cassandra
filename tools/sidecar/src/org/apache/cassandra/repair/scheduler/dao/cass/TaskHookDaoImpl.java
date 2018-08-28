@@ -33,20 +33,20 @@ import com.datastax.driver.core.querybuilder.QueryBuilder;
 import org.apache.cassandra.repair.scheduler.config.TaskSchedulerConfig;
 import org.apache.cassandra.repair.scheduler.config.TaskSchedulerContext;
 import org.apache.cassandra.repair.scheduler.conn.CassandraInteraction;
-import org.apache.cassandra.repair.scheduler.dao.model.IRepairHookDao;
-import org.apache.cassandra.repair.scheduler.entity.RepairMetadata;
+import org.apache.cassandra.repair.scheduler.dao.model.ITaskHookDao;
+import org.apache.cassandra.repair.scheduler.entity.TaskMetadata;
 import org.apache.cassandra.repair.scheduler.entity.TaskStatus;
 import org.joda.time.DateTime;
 
-public class RepairHookDaoImpl implements IRepairHookDao
+public class TaskHookDaoImpl implements ITaskHookDao
 {
-    private static final Logger logger = LoggerFactory.getLogger(RepairHookDaoImpl.class);
+    private static final Logger logger = LoggerFactory.getLogger(TaskHookDaoImpl.class);
 
     private final TaskSchedulerConfig config;
     private final CassandraInteraction cassInteraction;
     private final CassDaoUtil daoUtil;
 
-    public RepairHookDaoImpl(TaskSchedulerContext context, CassDaoUtil daoUtil)
+    public TaskHookDaoImpl(TaskSchedulerContext context, CassDaoUtil daoUtil)
     {
         this.daoUtil = daoUtil;
         this.config = context.getConfig();
@@ -54,14 +54,14 @@ public class RepairHookDaoImpl implements IRepairHookDao
     }
 
     @Override
-    public boolean markLocalPostRepairHookStarted(int repairId)
+    public boolean markLocalPostRepairHookStarted(int taskId)
     {
-        logger.info("Marking Cluster Post Repair Hook Started on repair Id: {} ", repairId);
+        logger.info("Marking Cluster Post Repair Hook Started on repair Id: {} ", taskId);
         try
         {
-            Statement insertQuery = QueryBuilder.insertInto(config.getRepairKeyspace(), config.getRepairHookStatusTableName())
+            Statement insertQuery = QueryBuilder.insertInto(config.getTaskKeyspace(), config.getTableHookSequenceTableName())
                                                 .value("cluster_name", this.cassInteraction.getClusterName())
-                                                .value("repair_id", repairId)
+                                                .value("task_id", taskId)
                                                 .value("node_id", this.cassInteraction.getLocalHostId())
                                                 .value("status", TaskStatus.STARTED.toString())
                                                 .value("start_time", DateTime.now().toDate())
@@ -78,9 +78,9 @@ public class RepairHookDaoImpl implements IRepairHookDao
     }
 
     @Override
-    public boolean markLocalPostRepairHookEnd(int repairId, TaskStatus status, Map<String, Boolean> hookSuccess)
+    public boolean markLocalPostRepairHookEnd(int taskId, TaskStatus status, Map<String, Boolean> hookSuccess)
     {
-        logger.info("Marking Cluster Post Repair Hook {} for repair Id: {} ", status, repairId);
+        logger.info("Marking Cluster Post Repair Hook {} for repair Id: {} ", status, taskId);
 
         Map<String, String> hookMetadata = new HashMap<>();
         hookSuccess.forEach((k, v) -> hookMetadata.put(k, v ? "success" : "fail"));
@@ -88,12 +88,12 @@ public class RepairHookDaoImpl implements IRepairHookDao
 
         try
         {
-            Statement updateQuery = QueryBuilder.update(config.getRepairKeyspace(), config.getRepairHookStatusTableName())
+            Statement updateQuery = QueryBuilder.update(config.getTaskKeyspace(), config.getTableHookSequenceTableName())
                                                 .with(QueryBuilder.set("end_time", DateTime.now().toDate()))
                                                 .and(QueryBuilder.set("status", status.toString()))
                                                 .and(QueryBuilder.set("last_event", hookMetadata))
                                                 .where(QueryBuilder.eq("cluster_name", this.cassInteraction.getClusterName()))
-                                                .and(QueryBuilder.eq("repair_id", repairId))
+                                                .and(QueryBuilder.eq("task_id", taskId))
                                                 .and(QueryBuilder.eq("node_id", this.cassInteraction.getLocalHostId()));
 
 
@@ -101,7 +101,7 @@ public class RepairHookDaoImpl implements IRepairHookDao
         }
         catch (Exception e)
         {
-            logger.error("Exception in marking cluster post repair hook status completed", e);
+            logger.error("Exception in marking cluster post task hook status completed", e);
             return false;
         }
 
@@ -109,67 +109,67 @@ public class RepairHookDaoImpl implements IRepairHookDao
     }
 
     @Override
-    public List<RepairMetadata> getLocalRepairHookStatus(int repairId)
+    public List<TaskMetadata> getLocalTaskHookStatus(int taskId)
     {
-        List<RepairMetadata> returnLst = new LinkedList<>();
+        List<TaskMetadata> returnLst = new LinkedList<>();
         try
         {
             Statement selectQuery = QueryBuilder.select()
-                                                .from(config.getRepairKeyspace(), config.getRepairHookStatusTableName())
+                                                .from(config.getTaskKeyspace(), config.getTableHookSequenceTableName())
 
                                                 .where(QueryBuilder.eq("cluster_name", this.cassInteraction.getClusterName()))
-                                                .and(QueryBuilder.eq("repair_id", repairId));
+                                                .and(QueryBuilder.eq("task_id", taskId));
 
             ResultSet results = daoUtil.execSelectStmtRepairDb(selectQuery);
 
             for (Row r : results.all())
             {
-                RepairMetadata repairMetadata = new RepairMetadata();
-                repairMetadata.setStatus(r.getString("status"))
-                              .setNodeId(r.getString("node_id"))
-                              .setRepairId(r.getInt("repair_id"))
-                              .setStartTime(r.getTimestamp("start_time"))
-                              .setEndTime(r.getTimestamp("end_time"))
-                              .setPauseTime(r.getTimestamp("pause_time"));
+                TaskMetadata taskMetadata = new TaskMetadata();
+                taskMetadata.setStatus(r.getString("status"))
+                            .setNodeId(r.getString("node_id"))
+                            .setTaskId(r.getInt("task_id"))
+                            .setStartTime(r.getTimestamp("start_time"))
+                            .setEndTime(r.getTimestamp("end_time"))
+                            .setPauseTime(r.getTimestamp("pause_time"));
 
-                returnLst.add(repairMetadata);
+                returnLst.add(taskMetadata);
             }
         }
         catch (Exception e)
         {
-            logger.error("Exception in getting repair status from repair_hook_status table", e);
+            logger.error("Exception in getting task status from task_hook_sequence table", e);
         }
         return returnLst;
     }
 
     @Override
-    public RepairMetadata getLocalRepairHookStatus(int repairId, String nodeId)
+    public TaskMetadata getLocalTaskHookStatus(int taskId, String nodeId)
     {
-        RepairMetadata repairMetadata = new RepairMetadata();
+        TaskMetadata taskMetadata = new TaskMetadata();
         try
         {
             Statement selectQuery = QueryBuilder.select()
-                                                .from(config.getRepairKeyspace(), config.getRepairHookStatusTableName())
+                                                .from(config.getTaskKeyspace(), config.getTableHookSequenceTableName())
                                                 .where(QueryBuilder.eq("cluster_name", this.cassInteraction.getClusterName()))
-                                                .and(QueryBuilder.eq("repair_id", repairId))
+                                                .and(QueryBuilder.eq("task_id", taskId))
                                                 .and(QueryBuilder.eq("node_id", nodeId));
 
             ResultSet results = daoUtil.execSelectStmtRepairDb(selectQuery);
 
             for (Row r : results.all())
             {
-                repairMetadata.setStatus(r.getString("status"))
-                              .setRepairId(r.getInt("repair_id"))
-                              .setStartTime(r.getTimestamp("start_time"))
-                              .setEndTime(r.getTimestamp("end_time"))
-                              .setPauseTime(r.getTimestamp("pause_time"));
-                return repairMetadata;
+                taskMetadata.setStatus(r.getString("status"))
+                            .setTaskId(r.getInt("task_id"))
+                            .setStartTime(r.getTimestamp("start_time"))
+                            .setEndTime(r.getTimestamp("end_time"))
+                            .setPauseTime(r.getTimestamp("pause_time"));
+                return taskMetadata;
             }
         }
         catch (Exception e)
         {
-            logger.error("Exception in getting repair status from repair_hook_status table", e);
+            logger.error("Exception in getting task status from task_hook_sequence table", e);
         }
-        return repairMetadata;
+        return taskMetadata;
     }
 }

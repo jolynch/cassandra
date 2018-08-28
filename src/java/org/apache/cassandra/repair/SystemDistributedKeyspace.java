@@ -72,13 +72,13 @@ public final class SystemDistributedKeyspace
 
     public static final String VIEW_BUILD_STATUS = "view_build_status";
 
-    public static final String REPAIR_PROCESS = "repair_process";
+    public static final String TASK_PROCESS = "task_process";
 
-    public static final String REPAIR_SEQUENCE = "repair_sequence";
+    public static final String TASK_SEQUENCE = "task_sequence";
 
-    public static final String REPAIR_STATUS = "repair_status";
+    public static final String TASK_TABLE_STATUS = "task_table_status";
 
-    public static final String REPAIR_HOOK_STATUS = "repair_hook_status";
+    public static final String TASK_HOOK_SEQUENCE = "task_hook_sequence";
 
     public static final String REPAIR_CONFIG = "repair_config";
 
@@ -129,12 +129,12 @@ public final class SystemDistributedKeyspace
                      + "status text,"
                      + "PRIMARY KEY ((keyspace_name, view_name), host_id))");
 
-    private static final TableMetadata RepairProcess =
-        parse(REPAIR_PROCESS,
-            "Cluster wide Repair Process Tracking",
+    private static final TableMetadata TaskProcess =
+        parse(TASK_PROCESS,
+              "Cluster wide Task Process Tracking",
               "CREATE TABLE %s ("
                 + "cluster_name    text,"
-                + "repair_id       int,"
+                + "task_id         int,"
                 + "created_node_id text,"
                 + "start_time      timestamp,"
                 + "end_time        timestamp,"
@@ -142,16 +142,16 @@ public final class SystemDistributedKeyspace
                 + "status          text,"
                 + "schedule_name   text,"
                 + "last_event      map<text, text>,"
-                + "PRIMARY KEY (cluster_name, repair_id)) "
-                + "WITH CLUSTERING ORDER BY (repair_id DESC) "
+                + "PRIMARY KEY (cluster_name, task_id)) "
+                + "WITH CLUSTERING ORDER BY (task_id DESC) "
                 + "AND compaction = {'class': 'LeveledCompactionStrategy'}");
 
-    private static final TableMetadata RepairSequence =
-    parse(REPAIR_SEQUENCE,
-          "Node Repair Tracking within a Process",
+    private static final TableMetadata TaskSequence =
+    parse(TASK_SEQUENCE,
+          "Node Task Tracking within a Process",
           "CREATE TABLE %s (" +
-          "    cluster_name     text," +
-          "    repair_id       int," +
+          "    cluster_name    text," +
+          "    task_id         int," +
           "    seq             int," +
           "    node_id         text," +
           "    created_nodeid  text," +
@@ -163,22 +163,22 @@ public final class SystemDistributedKeyspace
           "    last_heartbeat  timestamp," +
           "    schedule_name   text," +
           "    last_event      map<text, text>," +
-          "    PRIMARY KEY ((cluster_name), repair_id, seq)" +
-          ") WITH CLUSTERING ORDER BY (repair_id DESC, seq ASC)" +
+          "    PRIMARY KEY ((cluster_name), task_id, seq)" +
+          ") WITH CLUSTERING ORDER BY (task_id DESC, seq ASC)" +
           "AND compaction = {'class': 'LeveledCompactionStrategy'}");
 
-    private static final TableMetadata RepairStatus =
-    parse(REPAIR_STATUS,
-          "Table Repair Tracking within a Sequence",
+    private static final TableMetadata TaskTableStatus =
+    parse(TASK_TABLE_STATUS,
+          "Table level Task Tracking within a Sequence",
           "CREATE TABLE %s (" +
           "    cluster_name    text," +
-          "    repair_id       int," +
+          "    task_id         int," +
           "    node_id         text," +
           "    keyspace_name   text," +
           "    table_name      text," +
-          "    repair_cmd      int," +
           "    start_token     text," +
           "    end_token       text," +
+          "    task_cmd        int," +
           "    create_time     timestamp," +
           "    start_time      timestamp," +
           "    end_time        timestamp," +
@@ -186,15 +186,15 @@ public final class SystemDistributedKeyspace
           "    status          text," +
           "    last_event      map<text,text>," +
           "    config          map<text, text>," +
-          "    PRIMARY KEY ((cluster_name, repair_id), node_id, keyspace_name, table_name, repair_cmd, start_token, end_token) " +
+          "    PRIMARY KEY ((cluster_name, task_id), node_id, keyspace_name, table_name, start_token, end_token, task_cmd) " +
           ") WITH compaction = {'class': 'LeveledCompactionStrategy'}");
 
-    private static final TableMetadata RepairHookStatus =
-    parse(REPAIR_HOOK_STATUS,
-    "Post repair Tracking within a Sequence",
+    private static final TableMetadata TaskHookSequence =
+    parse(TASK_HOOK_SEQUENCE,
+          "Post Task Hook Tracking within a Sequence",
           "CREATE TABLE %s (" +
           "    cluster_name    text," +
-          "    repair_id       int," +
+          "    task_id         int," +
           "    node_id         text," +
           "    created_node_id text," +
           "    create_time     timestamp," +
@@ -204,8 +204,8 @@ public final class SystemDistributedKeyspace
           "    status          text," +
           "    last_heartbeat  timestamp," +
           "    last_event      map<text,text>," +
-          "    PRIMARY KEY ((cluster_name), repair_id, node_id)" +
-          ") WITH CLUSTERING ORDER BY (repair_id DESC, node_id DESC) " +
+          "    PRIMARY KEY ((cluster_name), task_id, node_id)" +
+          ") WITH CLUSTERING ORDER BY (task_id DESC, node_id DESC) " +
           "AND compaction = {'class': 'LeveledCompactionStrategy'}");
 
     private static final TableMetadata RepairConfig =
@@ -239,7 +239,7 @@ public final class SystemDistributedKeyspace
     {
         return KeyspaceMetadata.create(SchemaConstants.DISTRIBUTED_KEYSPACE_NAME, KeyspaceParams.simple(3),
                                        Tables.of(RepairHistory, ParentRepairHistory, ViewBuildStatus,
-                                                 RepairProcess, RepairSequence, RepairStatus, RepairHookStatus, RepairConfig));
+                                                 TaskProcess, TaskSequence, TaskTableStatus, TaskHookSequence, RepairConfig));
     }
 
     public static void startParentRepair(UUID parent_id, String keyspaceName, String[] cfnames, RepairOption options)

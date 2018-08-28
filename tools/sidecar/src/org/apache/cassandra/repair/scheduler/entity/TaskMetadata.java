@@ -21,22 +21,22 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 
-public class RepairMetadata
+public class TaskMetadata
 {
     private final Map<String, String> lastEvent = new HashMap<>();
-    public int repairId;
+    public int taskId;
     private String clusterName, nodeId, keyspaceName, tableName, startToken, endToken;
     private TaskStatus status;
     private Date createdTime, startTime, endTime, pauseTime;
     private int repairNum;
     private TableTaskConfig repairConfig;
 
-    public RepairMetadata()
+    public TaskMetadata()
     {
 
     }
 
-    public RepairMetadata(String clusterName, String nodeId, String keyspaceName, String tableName)
+    public TaskMetadata(String clusterName, String nodeId, String keyspaceName, String tableName)
     {
         this.clusterName = clusterName;
         this.nodeId = nodeId;
@@ -49,7 +49,7 @@ public class RepairMetadata
         return clusterName;
     }
 
-    public RepairMetadata setClusterName(String clusterName)
+    public TaskMetadata setClusterName(String clusterName)
     {
         this.clusterName = clusterName;
         return this;
@@ -65,7 +65,7 @@ public class RepairMetadata
         return nodeId;
     }
 
-    public RepairMetadata setNodeId(String nodeId)
+    public TaskMetadata setNodeId(String nodeId)
     {
         this.nodeId = nodeId;
         return this;
@@ -76,7 +76,7 @@ public class RepairMetadata
         return keyspaceName;
     }
 
-    public RepairMetadata setKeyspaceName(String keyspaceName)
+    public TaskMetadata setKeyspaceName(String keyspaceName)
     {
         this.keyspaceName = keyspaceName;
         return this;
@@ -87,7 +87,7 @@ public class RepairMetadata
         return tableName;
     }
 
-    public RepairMetadata setTableName(String tableName)
+    public TaskMetadata setTableName(String tableName)
     {
         this.tableName = tableName;
         return this;
@@ -98,7 +98,7 @@ public class RepairMetadata
         return startToken;
     }
 
-    public RepairMetadata setStartToken(String startToken)
+    public TaskMetadata setStartToken(String startToken)
     {
         this.startToken = startToken;
         return this;
@@ -109,7 +109,7 @@ public class RepairMetadata
         return endToken;
     }
 
-    public RepairMetadata setEndToken(String endToken)
+    public TaskMetadata setEndToken(String endToken)
     {
         this.endToken = endToken;
         return this;
@@ -120,13 +120,13 @@ public class RepairMetadata
         return status;
     }
 
-    public RepairMetadata setStatus(TaskStatus status)
+    public TaskMetadata setStatus(TaskStatus status)
     {
         this.status = status;
         return this;
     }
 
-    public RepairMetadata setStatus(String status)
+    public TaskMetadata setStatus(String status)
     {
         this.status = TaskStatus.valueOf(status);
         return this;
@@ -137,13 +137,13 @@ public class RepairMetadata
         return lastEvent;
     }
 
-    public RepairMetadata setLastEvent(String key, String value)
+    public TaskMetadata setLastEvent(String key, String value)
     {
         this.lastEvent.put(key, value);
         return this;
     }
 
-    public RepairMetadata setEntireLastEvent(Map<String, String> data)
+    public TaskMetadata setEntireLastEvent(Map<String, String> data)
     {
         this.lastEvent.putAll(data);
         return this;
@@ -154,7 +154,7 @@ public class RepairMetadata
         return createdTime;
     }
 
-    public RepairMetadata setCreatedTime(Date createdTime)
+    public TaskMetadata setCreatedTime(Date createdTime)
     {
         this.createdTime = createdTime;
         return this;
@@ -165,7 +165,7 @@ public class RepairMetadata
         return startTime;
     }
 
-    public RepairMetadata setStartTime(Date startTime)
+    public TaskMetadata setStartTime(Date startTime)
     {
         this.startTime = startTime;
         return this;
@@ -176,7 +176,7 @@ public class RepairMetadata
         return endTime;
     }
 
-    public RepairMetadata setEndTime(Date endTime)
+    public TaskMetadata setEndTime(Date endTime)
     {
         this.endTime = endTime;
         return this;
@@ -187,7 +187,7 @@ public class RepairMetadata
         return pauseTime;
     }
 
-    public RepairMetadata setPauseTime(Date pauseTime)
+    public TaskMetadata setPauseTime(Date pauseTime)
     {
         this.pauseTime = pauseTime;
         return this;
@@ -198,7 +198,7 @@ public class RepairMetadata
         return repairNum;
     }
 
-    public RepairMetadata setRepairNum(int repairNum)
+    public TaskMetadata setRepairNum(int repairNum)
     {
         this.repairNum = repairNum;
         return this;
@@ -209,27 +209,27 @@ public class RepairMetadata
         return repairConfig;
     }
 
-    public RepairMetadata setRepairConfig(TableTaskConfig repairConfig)
+    public TaskMetadata setRepairConfig(TableTaskConfig repairConfig)
     {
         this.repairConfig = repairConfig;
         return this;
     }
 
-    public int getRepairId()
+    public int getTaskId()
     {
-        return repairId;
+        return taskId;
     }
 
-    public RepairMetadata setRepairId(int repairId)
+    public TaskMetadata setTaskId(int taskId)
     {
-        this.repairId = repairId;
+        this.taskId = taskId;
         return this;
     }
 
     @Override
     public String toString()
     {
-        String sb = "RepairMetadata{" + "clusterName='" + clusterName + '\'' +
+        String sb = "TaskMetadata{" + "clusterName='" + clusterName + '\'' +
                     ", nodeId='" + nodeId + '\'' +
                     ", keyspaceName='" + keyspaceName + '\'' +
                     ", tableName='" + tableName + '\'' +
@@ -242,7 +242,7 @@ public class RepairMetadata
                     ", endTime=" + endTime +
                     ", pauseTime=" + pauseTime +
                     ", repairNum=" + repairNum +
-                    ", repairId=" + repairId +
+                    ", taskId=" + taskId +
                     '}';
         return sb;
     }

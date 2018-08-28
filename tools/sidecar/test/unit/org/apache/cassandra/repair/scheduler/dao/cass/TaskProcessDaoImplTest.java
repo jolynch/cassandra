@@ -44,34 +44,34 @@ public class TaskProcessDaoImplTest extends EmbeddedUnitTestBase
     public void cleanupMethod()
     {
 
-        repairProcessDao.deleteClusterRepairStatus(repairId);
+        repairProcessDao.deleteClusterTaskStatus(repairId);
     }
 
     @Test
     public void getClusterRepairStatus()
     {
-        Assert.assertFalse(repairProcessDao.getClusterRepairStatus().isPresent());
-        Assert.assertTrue(repairProcessDao.acquireRepairInitLock(repairId));
-        Assert.assertTrue(repairProcessDao.acquireRepairInitLock(repairId + 1));
-        Assert.assertTrue(repairProcessDao.acquireRepairInitLock(repairId + 2));
-        Assert.assertEquals(TaskStatus.STARTED, repairProcessDao.getClusterRepairStatus().get().getTaskStatus());
-        Assert.assertEquals(repairId + 2, repairProcessDao.getClusterRepairStatus().get().getTaskId());
+        Assert.assertFalse(repairProcessDao.getClusterTaskStatus().isPresent());
+        Assert.assertTrue(repairProcessDao.acquireTaskInitLock(repairId));
+        Assert.assertTrue(repairProcessDao.acquireTaskInitLock(repairId + 1));
+        Assert.assertTrue(repairProcessDao.acquireTaskInitLock(repairId + 2));
+        Assert.assertEquals(TaskStatus.STARTED, repairProcessDao.getClusterTaskStatus().get().getTaskStatus());
+        Assert.assertEquals(repairId + 2, repairProcessDao.getClusterTaskStatus().get().getTaskId());
     }
 
     @Test
     public void acquireRepairInitLock()
     {
-        Assert.assertTrue(repairProcessDao.acquireRepairInitLock(repairId));
-        Assert.assertEquals(TaskStatus.STARTED, repairProcessDao.getClusterRepairStatus().get().getTaskStatus());
+        Assert.assertTrue(repairProcessDao.acquireTaskInitLock(repairId));
+        Assert.assertEquals(TaskStatus.STARTED, repairProcessDao.getClusterTaskStatus().get().getTaskStatus());
     }
 
     @Test
     public void markClusterRepairCompleted()
     {
         int repairId = getRandomRepairId();
-        Assert.assertTrue(repairProcessDao.acquireRepairInitLock(repairId));
-        Assert.assertEquals(repairProcessDao.getClusterRepairStatus().get().getTaskStatus(), TaskStatus.STARTED);
-        Assert.assertTrue(repairProcessDao.markClusterRepairFinished(repairId));
-        Assert.assertEquals(repairProcessDao.getClusterRepairStatus().get().getTaskStatus(), TaskStatus.FINISHED);
+        Assert.assertTrue(repairProcessDao.acquireTaskInitLock(repairId));
+        Assert.assertEquals(repairProcessDao.getClusterTaskStatus().get().getTaskStatus(), TaskStatus.STARTED);
+        Assert.assertTrue(repairProcessDao.markClusterTaskFinished(repairId));
+        Assert.assertEquals(repairProcessDao.getClusterTaskStatus().get().getTaskStatus(), TaskStatus.FINISHED);
     }
 }

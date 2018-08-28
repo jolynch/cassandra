@@ -20,30 +20,35 @@ package org.apache.cassandra.repair.scheduler.tasks;
 
 import java.util.Optional;
 
+import com.google.common.util.concurrent.ListenableFuture;
+
 import org.apache.cassandra.repair.scheduler.dao.model.IRepairConfigDao;
 import org.apache.cassandra.repair.scheduler.entity.ClusterTaskStatus;
-import org.apache.cassandra.repair.scheduler.entity.LocalRepairState;
-import org.apache.cassandra.repair.scheduler.entity.RepairSequence;
+import org.apache.cassandra.repair.scheduler.entity.LocalTaskStatus;
+import org.apache.cassandra.repair.scheduler.entity.TaskSequence;
 import org.apache.cassandra.repair.scheduler.entity.TableTaskConfig;
+import org.apache.cassandra.repair.scheduler.entity.TaskStatus;
 import org.apache.cassandra.repair.scheduler.hooks.IRepairHook;
 
 public interface IManagementTask
 {
     /** Generally defined by the implementation **/
 
-    boolean canRunTask(int taskId);
+    TaskStatus runTask(LocalTaskStatus state);
 
-    public boolean amIReadyForPostTaskHook(int repairId);
+    public boolean amIReadyForPostTaskHook(int taskId);
 
-    Optional<RepairSequence> amINextInSequenceOrDone(int repairId);
+    Optional<TaskSequence> amINextInSequenceOrDone(int repairId);
 
-    void prepareForTaskOnNode(int repairId, RepairSequence seq);
+    void prepareForTaskOnNode(int repairId, TaskSequence seq);
 
-    boolean cancelTaskOnNode(int taskId, String reason, RepairSequence seq);
+    void cleanupAfterTaskOnNode(TaskSequence sequence, TaskStatus status);
+
+    boolean cancelTaskOnNode(int taskId, String reason, TaskSequence seq);
 
     /** Generally left to the base class **/
 
-    public boolean runHook(IRepairHook hook, TableTaskConfig tableConfig)
+    public boolean runHook(IRepairHook hook, TableTaskConfig tableConfig);
 
     int getTaskId();
 
@@ -65,11 +70,11 @@ public interface IManagementTask
 
     void pauseTaskOnCluster(int taskId);
 
-    Optional<RepairSequence> getStuckSequence(int taskId);
+    Optional<TaskSequence> getStuckSequence(int taskId);
 
-    void abortTaskOnStuckSequence(RepairSequence sequence);
+    void abortTaskOnStuckSequence(TaskSequence sequence);
 
-    boolean finishClusterRepair(LocalRepairState repairState);
+    public boolean finishClusterTask(LocalTaskStatus taskState)
 
     IRepairConfigDao getRepairConfigDao();
 

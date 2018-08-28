@@ -22,7 +22,7 @@ import java.util.SortedSet;
 
 import org.apache.cassandra.repair.RepairParallelism;
 import org.apache.cassandra.repair.scheduler.entity.RepairOptions;
-import org.apache.cassandra.repair.scheduler.entity.RepairSequence;
+import org.apache.cassandra.repair.scheduler.entity.TaskSequence;
 import org.apache.cassandra.repair.scheduler.entity.TaskStatus;
 import org.apache.cassandra.repair.scheduler.entity.RepairType;
 import org.apache.cassandra.repair.scheduler.entity.TableTaskConfig;
@@ -88,15 +88,15 @@ public class TaskManagerTest extends EmbeddedUnitTestBase
         // repair and everything succeeds instantly. So ... check really basic stuff and leave the rest
         // to the e2e tests.
         assertEquals(1, repairId);
-        SortedSet<RepairSequence> sequence = daoManager.getRepairSequenceDao().getRepairSequence(repairId);
+        SortedSet<TaskSequence> sequence = daoManager.getRepairSequenceDao().getRepairSequence(repairId);
         assertEquals(TaskStatus.FINISHED, sequence.first().getStatus());
         assertEquals(TaskStatus.HOOK_RUNNING,
-                     daoManager.getRepairProcessDao().getClusterRepairStatus().get().getTaskStatus());
+                     daoManager.getTaskProcessDao().getClusterTaskStatus().get().getTaskStatus());
 
         // Now this should finish the repair
         assertEquals(1, rm.runRepairOnCluster());
         assertEquals(TaskStatus.FINISHED,
-                     daoManager.getRepairProcessDao().getClusterRepairStatus().get().getTaskStatus());
+                     daoManager.getTaskProcessDao().getClusterTaskStatus().get().getTaskStatus());
 
         // Repair should be done now for a little while.
         assertEquals(-1, rm.runRepairOnCluster());

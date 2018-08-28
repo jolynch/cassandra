@@ -18,6 +18,34 @@
 
 package org.apache.cassandra.repair.scheduler.tasks;
 
+import org.apache.cassandra.repair.scheduler.TaskDaoManager;
+import org.apache.cassandra.repair.scheduler.config.TaskSchedulerContext;
+import org.apache.cassandra.repair.scheduler.entity.LocalTaskStatus;
+import org.apache.cassandra.repair.scheduler.entity.TaskSequence;
+import org.apache.cassandra.repair.scheduler.entity.TaskStatus;
+
 public class NoOpTask extends BaseTask
 {
+    public NoOpTask(TaskSchedulerContext context, TaskDaoManager daoManager)
+    {
+        super(context, daoManager);
+    }
+
+    @Override
+    public TaskStatus runTask(LocalTaskStatus state)
+    {
+        return TaskStatus.FINISHED;
+    }
+
+    @Override
+    public boolean amIReadyForPostTaskHook(int taskId)
+    {
+        return true;
+    }
+
+    @Override
+    public boolean cancelTaskOnNode(int taskId, String reason, TaskSequence seq)
+    {
+        return false;
+    }
 }

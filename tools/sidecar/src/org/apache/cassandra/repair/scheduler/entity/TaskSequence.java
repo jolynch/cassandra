@@ -22,10 +22,10 @@ import java.util.Map;
 
 import org.joda.time.DateTime;
 
-public class RepairSequence implements Comparable<RepairSequence>
+public class TaskSequence implements Comparable<TaskSequence>
 {
     private String clusterName;
-    private int repairId;
+    private int taskId;
     private Integer seq;
     private String nodeId;
     private Date creationTime;
@@ -37,14 +37,14 @@ public class RepairSequence implements Comparable<RepairSequence>
     private String scheduleName;
     private Map<String, String> lastEvent;
 
-    public RepairSequence()
+    public TaskSequence()
     {
     }
 
-    public RepairSequence(String clusterName, int repairId)
+    public TaskSequence(String clusterName, int taskId)
     {
         this.clusterName = clusterName;
-        this.repairId = repairId;
+        this.taskId = taskId;
     }
 
     String getClusterName()
@@ -52,20 +52,20 @@ public class RepairSequence implements Comparable<RepairSequence>
         return clusterName;
     }
 
-    public RepairSequence setClusterName(String clusterName)
+    public TaskSequence setClusterName(String clusterName)
     {
         this.clusterName = clusterName;
         return this;
     }
 
-    public int getRepairId()
+    public int getTaskId()
     {
-        return repairId;
+        return taskId;
     }
 
-    public RepairSequence setRepairId(int repairId)
+    public TaskSequence setTaskId(int taskId)
     {
-        this.repairId = repairId;
+        this.taskId = taskId;
         return this;
     }
 
@@ -74,7 +74,7 @@ public class RepairSequence implements Comparable<RepairSequence>
         return seq;
     }
 
-    public RepairSequence setSeq(Integer seq)
+    public TaskSequence setSeq(Integer seq)
     {
         this.seq = seq;
         return this;
@@ -85,7 +85,7 @@ public class RepairSequence implements Comparable<RepairSequence>
         return nodeId;
     }
 
-    public RepairSequence setNodeId(String nodeId)
+    public TaskSequence setNodeId(String nodeId)
     {
         this.nodeId = nodeId;
         return this;
@@ -96,7 +96,7 @@ public class RepairSequence implements Comparable<RepairSequence>
         return creationTime;
     }
 
-    public RepairSequence setCreationTime(Date creationTime)
+    public TaskSequence setCreationTime(Date creationTime)
     {
         this.creationTime = creationTime;
         return this;
@@ -107,7 +107,7 @@ public class RepairSequence implements Comparable<RepairSequence>
         return startTime;
     }
 
-    public RepairSequence setStartTime(Date startTime)
+    public TaskSequence setStartTime(Date startTime)
     {
         this.startTime = startTime;
         return this;
@@ -118,7 +118,7 @@ public class RepairSequence implements Comparable<RepairSequence>
         return endTime;
     }
 
-    public RepairSequence setEndTime(Date endTime)
+    public TaskSequence setEndTime(Date endTime)
     {
         this.endTime = endTime;
         return this;
@@ -129,7 +129,7 @@ public class RepairSequence implements Comparable<RepairSequence>
         return pauseTime;
     }
 
-    public RepairSequence setPauseTime(Date pauseTime)
+    public TaskSequence setPauseTime(Date pauseTime)
     {
         this.pauseTime = pauseTime;
         return this;
@@ -141,13 +141,13 @@ public class RepairSequence implements Comparable<RepairSequence>
     }
 
 
-    public RepairSequence setStatus(TaskStatus status)
+    public TaskSequence setStatus(TaskStatus status)
     {
         this.status = status;
         return this;
     }
 
-    public RepairSequence setStatus(String status)
+    public TaskSequence setStatus(String status)
     {
         this.status = TaskStatus.valueOf(status);
         return this;
@@ -164,7 +164,7 @@ public class RepairSequence implements Comparable<RepairSequence>
                                                        .before(DateTime.now().minusMinutes((int) numMin).toDate()));
     }
 
-    public RepairSequence setLastHeartbeat(Date lastHeartbeat)
+    public TaskSequence setLastHeartbeat(Date lastHeartbeat)
     {
         this.lastHeartbeat = lastHeartbeat;
         return this;
@@ -181,7 +181,7 @@ public class RepairSequence implements Comparable<RepairSequence>
         return scheduleName;
     }
 
-    public RepairSequence setScheduleName(String scheduleName)
+    public TaskSequence setScheduleName(String scheduleName)
     {
         this.scheduleName = scheduleName;
         return this;
@@ -192,7 +192,7 @@ public class RepairSequence implements Comparable<RepairSequence>
         return lastEvent;
     }
 
-    public RepairSequence setLastEvent(Map<String, String> lastEvent)
+    public TaskSequence setLastEvent(Map<String, String> lastEvent)
     {
         this.lastEvent = lastEvent;
         return this;
@@ -203,11 +203,11 @@ public class RepairSequence implements Comparable<RepairSequence>
     public boolean equals(Object o)
     {
         if (this == o) return true;
-        if (!(o instanceof RepairSequence)) return false;
+        if (!(o instanceof TaskSequence)) return false;
 
-        RepairSequence that = (RepairSequence) o;
+        TaskSequence that = (TaskSequence) o;
 
-        if (getRepairId() != that.getRepairId()) return false;
+        if (getTaskId() != that.getTaskId()) return false;
         if (getClusterName() != null ? !getClusterName().equals(that.getClusterName()) : that.getClusterName() != null)
             return false;
         if (getSeq() != null ? !getSeq().equals(that.getSeq()) : that.getSeq() != null) return false;
@@ -231,7 +231,7 @@ public class RepairSequence implements Comparable<RepairSequence>
     public int hashCode()
     {
         int result = getClusterName() != null ? getClusterName().hashCode() : 0;
-        result = 31 * result + getRepairId();
+        result = 31 * result + getTaskId();
         result = 31 * result + (getSeq() != null ? getSeq().hashCode() : 0);
         result = 31 * result + (getNodeId() != null ? getNodeId().hashCode() : 0);
         result = 31 * result + (getCreationTime() != null ? getCreationTime().hashCode() : 0);
@@ -245,7 +245,7 @@ public class RepairSequence implements Comparable<RepairSequence>
     }
 
     @Override
-    public int compareTo(RepairSequence o)
+    public int compareTo(TaskSequence o)
     {
         return this.getSeq().compareTo(o.getSeq());
     }
@@ -253,8 +253,8 @@ public class RepairSequence implements Comparable<RepairSequence>
     @Override
     public String toString()
     {
-        String sb = "RepairSequence{" + "clusterName='" + clusterName + '\'' +
-                    ", repairId=" + repairId +
+        String sb = "TaskSequence{" + "clusterName='" + clusterName + '\'' +
+                    ", taskId=" + taskId +
                     ", seq=" + seq +
                     ", nodeId='" + nodeId + '\'' +
                     ", creationTime=" + creationTime +

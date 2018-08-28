@@ -34,7 +34,7 @@ import org.apache.cassandra.repair.scheduler.TaskManager;
 import org.apache.cassandra.repair.scheduler.TaskSchedulerContextImpl;
 import org.apache.cassandra.repair.scheduler.config.TaskSchedulerContext;
 import org.apache.cassandra.repair.scheduler.entity.ClusterTaskStatus;
-import org.apache.cassandra.repair.scheduler.entity.RepairMetadata;
+import org.apache.cassandra.repair.scheduler.entity.TaskMetadata;
 import org.apache.cassandra.repair.scheduler.entity.TableTaskConfig;
 import org.apache.cassandra.repair.scheduler.tasks.repair.RepairTask;
 import org.apache.cassandra.utils.NoSpamLogger;
@@ -102,12 +102,12 @@ public class RepairSchedulerDaemon
      *
      * @return Repair metadata which represents of the status of a repair
      */
-    public List<RepairMetadata> getRepairStatus()
+    public List<TaskMetadata> getRepairStatus()
     {
         Optional<ClusterTaskStatus> crs = repairController.getClusterRepairStatus();
         return crs
                .map(clusterRepairStatus -> repairController.getRepairStatusDao()
-                                                           .getRepairHistory(clusterRepairStatus.getTaskId()))
+                                                           .getTaskHistory(clusterRepairStatus.getTaskId()))
                .orElse(null);
     }
 
@@ -115,21 +115,21 @@ public class RepairSchedulerDaemon
      * Get repair status of a particular repair id
      *
      * @param repairId Repair Id to get the status for
-     * @return List of RepairMetadata which represents the status of repair
+     * @return List of TaskMetadata which represents the status of repair
      */
-    public List<RepairMetadata> getRepairStatus(int repairId)
+    public List<TaskMetadata> getRepairStatus(int repairId)
     {
-        return repairController.getRepairStatusDao().getRepairHistory(repairId);
+        return repairController.getRepairStatusDao().getTaskHistory(repairId);
     }
 
     /**
      * Gets repair history for the current cluster
      *
-     * @return List<RepairMetadata>
+     * @return List<TaskMetadata>
      */
-    public List<RepairMetadata> getRepairHistory()
+    public List<TaskMetadata> getRepairHistory()
     {
-        return repairController.getRepairStatusDao().getRepairHistory();
+        return repairController.getRepairStatusDao().getTaskHistory();
     }
 
     /**

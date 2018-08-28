@@ -23,56 +23,56 @@ import java.util.Optional;
 import org.apache.cassandra.repair.scheduler.entity.ClusterTaskStatus;
 
 /**
- * Interface to manage repair_process table (Cluster level repair metadata table)
+ * Interface to manage task_process table (Cluster level task metadata table)
  */
 public interface ITaskProcessDao
 {
     /**
-     * Gets the latest repair status on the cluster.
-     * This gives the repair status of entire cluster, repair not necessarily need to run on the current instance
+     * Gets the latest task status on the cluster.
+     * This gives the task status of entire cluster, task not necessarily need to run on the current instance
      *
-     * @return Cluster repair status information from repair_process table, this does contain node level repair status
+     * @return Cluster task status information from task_process table, this does contain node level task status
      */
-    Optional<ClusterTaskStatus> getClusterRepairStatus();
+    Optional<ClusterTaskStatus> getClusterTaskStatus();
 
     /**
-     * Get the cluster repair status for a given repair id
+     * Get the cluster task status for a given task id
      *
-     * @param taskId Repair Id to query repair_process table for
-     * @return Cluster repair status information from repair_process table, this does contain node level repair status
+     * @param taskId Repair Id to query task_process table for
+     * @return Cluster task status information from task_process table, this does contain node level task status
      */
-    Optional<ClusterTaskStatus> getClusterRepairStatus(int taskId);
+    Optional<ClusterTaskStatus> getClusterTaskStatus(int taskId);
 
     /**
-     * This is the only coordination place in the repair scheduler, Tries to insert a record with local cluster name
-     * and repair id into repair_process table with IF NOT EXISTS (LWT) with a SERIAL consistency.
+     * This is the only coordination place in the task scheduler, Tries to insert a record with local cluster name
+     * and task id into task_process table with IF NOT EXISTS (LWT) with a SERIAL consistency.
      *
-     * @param repairId Repair Id to insert
+     * @param taskId Repair Id to insert
      *                 boolean indicating the result of LWT operation
      */
-    boolean acquireRepairInitLock(int repairId);
+    boolean acquireTaskInitLock(int taskId);
 
     /**
-     * Marking Cluster repair status completed on a repair Id in repair_process table
+     * Marking Cluster task status completed on a task Id in task_process table
      *
-     * @param repairId Repair Id to mark it as completed
+     * @param taskId Repair Id to mark it as completed
      * @return boolean indicating the result of operation
      */
-    boolean markClusterRepairFinished(int repairId);
+    boolean markClusterTaskFinished(int taskId);
 
     /**
-     * Deletes Cluster repair status for a repair Id from repair_process table
+     * Deletes Cluster task status for a task Id from task_process table
      *
-     * @param repairId Repair Id to delete the status for
+     * @param taskId Repair Id to delete the status for
      * @return boolean indicating the result of operation
      */
-    boolean deleteClusterRepairStatus(int repairId);
+    boolean deleteClusterTaskStatus(int taskId);
 
     /**
-     * Updates Cluster repair status for a repair Id in repair_process table
+     * Updates Cluster task status for a task Id in task_process table
      *
-     * @param clusterTaskStatus repair_process table entry/ row
+     * @param clusterTaskStatus task_process table entry/ row
      * @return boolean indicating the result of operation
      */
-    boolean updateClusterRepairStatus(ClusterTaskStatus clusterTaskStatus);
+    boolean updateClusterTaskStatus(ClusterTaskStatus clusterTaskStatus);
 }

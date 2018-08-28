@@ -20,20 +20,20 @@ package org.apache.cassandra.repair.scheduler.dao.model;
 
 import java.util.List;
 
-import org.apache.cassandra.repair.scheduler.entity.RepairMetadata;
+import org.apache.cassandra.repair.scheduler.entity.TaskMetadata;
 
 /**
  * Interface to manage repair_status table (Table and subrange level repair status).
  * Repair status holds te data for a particular subrange of a table within a node within a cluster
  */
-public interface IRepairStatusDao
+public interface ITaskTableStatusDao
 {
     /**
-     * Update repair status with a given {@link RepairMetadata} in repair_status table
-     * @param repairMetadata RepairMetadata
+     * Update repair status with a given {@link TaskMetadata} in repair_status table
+     * @param taskMetadata TaskMetadata
      * @return boolean indicating the result of this operation
      */
-    boolean markRepairStatusChange(RepairMetadata repairMetadata);
+    boolean markTaskStatusChange(TaskMetadata taskMetadata);
 
     /**
      * Marks the repair as canceled in repair_status table
@@ -41,37 +41,37 @@ public interface IRepairStatusDao
      * @param nodeId NodeId to mark the repair as canceled in repair_status table
      * boolean indicating the result of this operation
      */
-    boolean markRepairCancelled(int repairId, String nodeId);
+    boolean markTaskCancelled(int repairId, String nodeId);
 
     /**
      * Gets repair history from repair_status table
-     * @param repairId RepairId to query for
+     * @param taskId RepairId to query for
      * @param keyspace Keyspace name to query for
      * @param table Table name to query for
      * @param nodeId NodeId to query for
-     * @return List of {@link RepairMetadata} with repair_status records
+     * @return List of {@link TaskMetadata} with repair_status records
      */
-    List<RepairMetadata> getRepairHistory(int repairId, String keyspace, String table, String nodeId);
+    List<TaskMetadata> getTaskHistory(int taskId, String keyspace, String table, String nodeId);
 
     /**
      * Gets repair history from repair_status table for a given repair id
-     * @param repairId RepairId to query for
-     * @return List of  {@link RepairMetadata} with repair_status records
+     * @param taskId RepairId to query for
+     * @return List of  {@link TaskMetadata} with repair_status records
      */
-    List<RepairMetadata> getRepairHistory(int repairId);
+    List<TaskMetadata> getTaskHistory(int taskId);
 
     /**
      * Gets repair history from repair_status table without any filters. This could be very big depending on the
      * age of cluster, number of tables and age of the repair scheduler
-     * @return List of {@link RepairMetadata} with repair_status records
+     * @return List of {@link TaskMetadata} with repair_status records
      */
-    List<RepairMetadata> getRepairHistory();
+    List<TaskMetadata> getTaskHistory();
 
     /**
      * Gets repair history from repair_status table for a given repair and node id
      * @param repairId RepairId to query for
      * @param nodeId NodeId to query for
-     * @return {@link RepairMetadata} with repair_status records
+     * @return {@link TaskMetadata} with repair_status records
      */
-    List<RepairMetadata> getRepairHistory(int repairId, String nodeId);
+    List<TaskMetadata> getTaskHistory(int repairId, String nodeId);
 }

@@ -30,22 +30,22 @@ import org.junit.Before;
 import org.junit.Test;
 
 import org.apache.cassandra.repair.scheduler.EmbeddedUnitTestBase;
-import org.apache.cassandra.repair.scheduler.dao.model.IRepairSequenceDao;
+import org.apache.cassandra.repair.scheduler.dao.model.ITaskSequenceDao;
 import org.apache.cassandra.repair.scheduler.entity.RepairHost;
-import org.apache.cassandra.repair.scheduler.entity.RepairSequence;
+import org.apache.cassandra.repair.scheduler.entity.TaskSequence;
 import org.apache.cassandra.repair.scheduler.entity.TaskStatus;
 import org.apache.cassandra.utils.GuidGenerator;
 
-public class RepairSequenceDaoImplTest extends EmbeddedUnitTestBase
+public class TaskSequenceDaoImplTest extends EmbeddedUnitTestBase
 {
-    private IRepairSequenceDao repairSequenceDao;
+    private ITaskSequenceDao repairSequenceDao;
     private int repairId;
 
     @Before
     public void beforeMethod()
     {
         context = getContext();
-        repairSequenceDao = new RepairSequenceDaoImpl(context, getCassDaoUtil());
+        repairSequenceDao = new TaskSequenceDaoImpl(context, getCassDaoUtil());
     }
 
     @Before
@@ -57,9 +57,9 @@ public class RepairSequenceDaoImplTest extends EmbeddedUnitTestBase
     @Test
     public void markRepairStartedOnInstance()
     {
-        Assert.assertTrue(repairSequenceDao.markRepairStartedOnInstance(repairId, 222));
-        SortedSet<RepairSequence> rSeq = repairSequenceDao.getRepairSequence(repairId);
-        Assert.assertEquals(repairId, rSeq.first().getRepairId());
+        Assert.assertTrue(repairSequenceDao.markTaskStartedOnInstance(repairId, 222));
+        SortedSet<TaskSequence> rSeq = repairSequenceDao.getRepairSequence(repairId);
+        Assert.assertEquals(repairId, rSeq.first().getTaskId());
         Assert.assertEquals(Optional.of(222), Optional.of(rSeq.first().getSeq()));
         Assert.assertEquals(TaskStatus.STARTED, rSeq.first().getStatus());
     }
@@ -75,7 +75,7 @@ public class RepairSequenceDaoImplTest extends EmbeddedUnitTestBase
     public void getRepairSequence()
     {
         repairSequenceDao.persistEndpointSeqMap(repairId, "default", generateHosts(3));
-        SortedSet<RepairSequence> rSeq = repairSequenceDao.getRepairSequence(repairId);
+        SortedSet<TaskSequence> rSeq = repairSequenceDao.getRepairSequence(repairId);
         Assert.assertEquals(3, rSeq.size());
     }
 
@@ -85,7 +85,7 @@ public class RepairSequenceDaoImplTest extends EmbeddedUnitTestBase
         int repairId = getRandomRepairId();
         boolean rSeq = repairSequenceDao.cancelRepairOnNode(repairId, 2);
 
-        SortedSet<RepairSequence> r = repairSequenceDao.getRepairSequence(repairId);
+        SortedSet<TaskSequence> r = repairSequenceDao.getRepairSequence(repairId);
         Assert.assertEquals(1, r.size());
         Assert.assertEquals(TaskStatus.CANCELLED, r.first().getStatus());
     }

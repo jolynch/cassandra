@@ -24,12 +24,12 @@ import org.apache.cassandra.repair.scheduler.conn.CassandraInteraction;
 /**
  * TaskSchedulerContext holds C* session object to repairing cluster, config object
  * and C* interaction object. RepairScheduler needs these objects in many places,
- * instead of constructing them and passing them around, this Context class makes the life easier to access these objects
+ * instead of constructing them and passing them around, this Context class makes it easier to access
  */
 public interface TaskSchedulerContext
 {
     /**
-     * Cassandra session object to repair state persistence cluster
+     * Cassandra session object to local Cassandra cluster
      *
      * @return Session
      */

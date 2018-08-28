@@ -43,7 +43,7 @@ import static org.apache.cassandra.repair.scheduler.RepairUtil.getKsTbName;
 
 public class RepairConfigDaoImpl implements IRepairConfigDao
 {
-    private static final Logger logger = LoggerFactory.getLogger(RepairHookDaoImpl.class);
+    private static final Logger logger = LoggerFactory.getLogger(TaskHookDaoImpl.class);
 
     private final TaskSchedulerContext context;
     private static String clusterName;
@@ -65,7 +65,7 @@ public class RepairConfigDaoImpl implements IRepairConfigDao
     {
         Map<String, List<TableTaskConfig>> repairConfigListMap = new HashMap<>();
         Statement selectQuery = QueryBuilder.select()
-                                            .from(context.getConfig().getRepairKeyspace(),
+                                            .from(context.getConfig().getTaskKeyspace(),
                                                   context.getConfig().getRepairConfigTableName())
                                             .where(QueryBuilder.eq("cluster_name", getClusterName()));
 
@@ -86,7 +86,7 @@ public class RepairConfigDaoImpl implements IRepairConfigDao
     {
         List<TableTaskConfig> lstTableTaskConfig = new ArrayList<>();
         Statement selectQuery = QueryBuilder.select()
-                                            .from(context.getConfig().getRepairKeyspace(),
+                                            .from(context.getConfig().getTaskKeyspace(),
                                                   context.getConfig().getRepairConfigTableName())
                                             .where(QueryBuilder.eq("cluster_name", getClusterName()))
                                             .and(QueryBuilder.eq("schedule_name", scheduleName));
@@ -104,7 +104,7 @@ public class RepairConfigDaoImpl implements IRepairConfigDao
     {
         Set<String> schedules = new HashSet<>();
         Statement selectQuery = QueryBuilder.select("schedule_name")
-                                            .from(context.getConfig().getRepairKeyspace(),
+                                            .from(context.getConfig().getTaskKeyspace(),
                                                   context.getConfig().getRepairConfigTableName())
                                             .where(QueryBuilder.eq("cluster_name", getClusterName()));
 
@@ -122,7 +122,7 @@ public class RepairConfigDaoImpl implements IRepairConfigDao
         logger.info("Saving Repair Configuration for {}.{}", getClusterName(), schedule);
         try
         {
-            Statement insertQuery = QueryBuilder.insertInto(context.getConfig().getRepairKeyspace(),
+            Statement insertQuery = QueryBuilder.insertInto(context.getConfig().getTaskKeyspace(),
                                                             context.getConfig().getRepairConfigTableName())
                                                 .value("cluster_name", getClusterName())
                                                 .value("schedule_name", schedule)

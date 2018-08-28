@@ -26,15 +26,15 @@ import com.datastax.driver.core.Session;
 import org.apache.cassandra.repair.scheduler.config.TaskSchedulerContext;
 import org.apache.cassandra.repair.scheduler.dao.cass.CassDaoUtil;
 import org.apache.cassandra.repair.scheduler.dao.cass.RepairConfigDaoImpl;
-import org.apache.cassandra.repair.scheduler.dao.cass.RepairHookDaoImpl;
+import org.apache.cassandra.repair.scheduler.dao.cass.TaskHookDaoImpl;
 import org.apache.cassandra.repair.scheduler.dao.cass.TaskProcessDaoImpl;
-import org.apache.cassandra.repair.scheduler.dao.cass.RepairSequenceDaoImpl;
-import org.apache.cassandra.repair.scheduler.dao.cass.RepairStatusDaoImpl;
+import org.apache.cassandra.repair.scheduler.dao.cass.TaskSequenceDaoImpl;
+import org.apache.cassandra.repair.scheduler.dao.cass.TaskTableStatusDao;
 import org.apache.cassandra.repair.scheduler.dao.model.IRepairConfigDao;
-import org.apache.cassandra.repair.scheduler.dao.model.IRepairHookDao;
+import org.apache.cassandra.repair.scheduler.dao.model.ITaskHookDao;
 import org.apache.cassandra.repair.scheduler.dao.model.ITaskProcessDao;
-import org.apache.cassandra.repair.scheduler.dao.model.IRepairSequenceDao;
-import org.apache.cassandra.repair.scheduler.dao.model.IRepairStatusDao;
+import org.apache.cassandra.repair.scheduler.dao.model.ITaskSequenceDao;
+import org.apache.cassandra.repair.scheduler.dao.model.ITaskTableStatusDao;
 
 import static org.apache.cassandra.repair.scheduler.RepairUtil.initSession;
 
@@ -48,10 +48,10 @@ public class TaskDaoManager
 {
     private static final Logger logger = LoggerFactory.getLogger(TaskDaoManager.class);
 
-    private final ITaskProcessDao repairProcessDao;
-    private final IRepairStatusDao repairStatusDao;
-    private final IRepairSequenceDao repairSequenceDao;
-    private final IRepairHookDao repairHookDao;
+    private final ITaskProcessDao taskProcessDao;
+    private final ITaskTableStatusDao repairStatusDao;
+    private final ITaskSequenceDao repairSequenceDao;
+    private final ITaskHookDao repairHookDao;
     private final IRepairConfigDao repairConfigDao;
     /**
      * Using repair session supplier, so that repair scheduler does not try to initiate session with
@@ -70,29 +70,29 @@ public class TaskDaoManager
         stateSupplier = this::getOrInitRepairSession;
         final CassDaoUtil daoUtil = new CassDaoUtil(context.getConfig(), stateSupplier);
 
-        this.repairProcessDao = new TaskProcessDaoImpl(context, daoUtil);
-        this.repairStatusDao = new RepairStatusDaoImpl(context, daoUtil);
-        this.repairSequenceDao = new RepairSequenceDaoImpl(context, daoUtil);
-        this.repairHookDao = new RepairHookDaoImpl(context, daoUtil);
+        this.taskProcessDao = new TaskProcessDaoImpl(context, daoUtil);
+        this.repairStatusDao = new TaskTableStatusDao(context, daoUtil);
+        this.repairSequenceDao = new TaskSequenceDaoImpl(context, daoUtil);
+        this.repairHookDao = new TaskHookDaoImpl(context, daoUtil);
         this.repairConfigDao = new RepairConfigDaoImpl(context, daoUtil);
     }
 
-    public ITaskProcessDao getRepairProcessDao()
+    public ITaskProcessDao getTaskProcessDao()
     {
-        return repairProcessDao;
+        return taskProcessDao;
     }
 
-    public IRepairStatusDao getRepairStatusDao()
+    public ITaskTableStatusDao getRepairStatusDao()
     {
         return repairStatusDao;
     }
 
-    public IRepairSequenceDao getRepairSequenceDao()
+    public ITaskSequenceDao getRepairSequenceDao()
     {
         return repairSequenceDao;
     }
 
-    public IRepairHookDao getRepairHookDao()
+    public ITaskHookDao getRepairHookDao()
     {
         return repairHookDao;
     }

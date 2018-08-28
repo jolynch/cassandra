@@ -51,13 +51,13 @@ public class TaskProcessDaoImpl implements ITaskProcessDao
     }
 
     @Override
-    public Optional<ClusterTaskStatus> getClusterRepairStatus()
+    public Optional<ClusterTaskStatus> getClusterTaskStatus()
     {
         Optional<ClusterTaskStatus> clusterRepairStatus = Optional.empty();
         try
         {
             Statement selectQuery = QueryBuilder.select()
-                                                .from(config.getRepairKeyspace(), config.getRepairProcessTableName())
+                                                .from(config.getTaskKeyspace(), config.getTaskProcessTableName())
                                                 .where(QueryBuilder.eq("cluster_name", cassInteraction.getClusterName()))
                                                 .limit(1); // We need only first and latest row from clustering order.
 
@@ -81,21 +81,21 @@ public class TaskProcessDaoImpl implements ITaskProcessDao
     }
 
     @Override
-    public Optional<ClusterTaskStatus> getClusterRepairStatus(int taskId)
+    public Optional<ClusterTaskStatus> getClusterTaskStatus(int taskId)
     {
         Optional<ClusterTaskStatus> clusterRepairStatus = Optional.empty();
         try
         {
             Statement selectQuery = QueryBuilder.select()
-                                                .from(config.getRepairKeyspace(), config.getRepairProcessTableName())
+                                                .from(config.getTaskKeyspace(), config.getTaskProcessTableName())
                                                 .where(QueryBuilder.eq("cluster_name", cassInteraction.getClusterName()))
                                                 .and(QueryBuilder.eq("repair_id", taskId));
 
             Row row = daoUtil.execSelectStmtRepairDb(selectQuery).one();
             if (row != null)
             {
-                ClusterTaskStatus status = new ClusterTaskStatus().setRepairStatus(row.getString("status"))
-                                                                  .setRepairId(row.getInt("repair_id"))
+                ClusterTaskStatus status = new ClusterTaskStatus().setTaskStatus(row.getString("status"))
+                                                                  .setTaskId(row.getInt("repair_id"))
                                                                   .setStartTime(row.getTimestamp("start_time"))
                                                                   .setEndTime(row.getTimestamp("end_time"))
                                                                   .setPauseTime(row.getTimestamp("pause_time"));
@@ -111,11 +111,11 @@ public class TaskProcessDaoImpl implements ITaskProcessDao
     }
 
     @Override
-    public boolean acquireRepairInitLock(int repairId)
+    public boolean acquireTaskInitLock(int taskId)
     {
-        Statement insertQuery = QueryBuilder.insertInto(config.getRepairKeyspace(), config.getRepairProcessTableName())
+        Statement insertQuery = QueryBuilder.insertInto(config.getTaskKeyspace(), config.getTaskProcessTableName())
                                             .value("cluster_name", cassInteraction.getClusterName())
-                                            .value("repair_id", repairId)
+                                            .value("repair_id", taskId)
                                             .value("status", TaskStatus.STARTED.toString())
                                             .value("start_time", DateTime.now().toDate())
                                             .value("created_node_id", cassInteraction.getLocalHostId())
@@ -126,18 +126,18 @@ public class TaskProcessDaoImpl implements ITaskProcessDao
     }
 
     @Override
-    public boolean markClusterRepairFinished(int repairId)
+    public boolean markClusterTaskFinished(int taskId)
     {
-        logger.info("Marking Cluster Repair Completed on repair Id: {} ", repairId);
+        logger.info("Marking Cluster Repair Completed on repair Id: {} ", taskId);
 
         try
         {
-            Statement updateQuery = QueryBuilder.update(config.getRepairKeyspace(), config.getRepairProcessTableName())
+            Statement updateQuery = QueryBuilder.update(config.getTaskKeyspace(), config.getTaskProcessTableName())
                                                 .with(QueryBuilder.set("end_time", DateTime.now().toDate()))
                                                 .and(QueryBuilder.set("status", TaskStatus.FINISHED.toString()))
                                                 .and(QueryBuilder.put("last_event", "Completed By", cassInteraction.getLocalHostId()))
                                                 .where(QueryBuilder.eq("cluster_name", cassInteraction.getClusterName()))
-                                                .and(QueryBuilder.eq("repair_id", repairId));
+                                                .and(QueryBuilder.eq("repair_id", taskId));
 
             daoUtil.execUpsertStmtRepairDb(updateQuery);
         }
@@ -151,15 +151,15 @@ public class TaskProcessDaoImpl implements ITaskProcessDao
     }
 
     @Override
-    public boolean deleteClusterRepairStatus(int repairId)
+    public boolean deleteClusterTaskStatus(int taskId)
     {
-        logger.info("Deleting Cluster Repair status for repair Id: {} ", repairId);
+        logger.info("Deleting Cluster Repair status for repair Id: {} ", taskId);
 
         try
         {
-            Statement deleteQuery = QueryBuilder.delete().from(config.getRepairKeyspace(), config.getRepairProcessTableName())
+            Statement deleteQuery = QueryBuilder.delete().from(config.getTaskKeyspace(), config.getTaskProcessTableName())
                                                 .where(QueryBuilder.eq("cluster_name", cassInteraction.getClusterName()))
-                                                .and(QueryBuilder.eq("repair_id", repairId));
+                                                .and(QueryBuilder.eq("repair_id", taskId));
 
             daoUtil.execUpsertStmtRepairDb(deleteQuery);
         }
@@ -172,13 +172,13 @@ public class TaskProcessDaoImpl implements ITaskProcessDao
     }
 
     @Override
-    public boolean updateClusterRepairStatus(ClusterTaskStatus clusterTaskStatus)
+    public boolean updateClusterTaskStatus(ClusterTaskStatus clusterTaskStatus)
     {
         logger.info("Updating Cluster Repair status on repair Id: {} ", clusterTaskStatus.getTaskId());
 
         try
         {
-            Statement updateQuery = QueryBuilder.update(config.getRepairKeyspace(), config.getRepairProcessTableName())
+            Statement updateQuery = QueryBuilder.update(config.getTaskKeyspace(), config.getTaskProcessTableName())
                                                 .with(QueryBuilder.set("end_time", clusterTaskStatus.getEndTime()))
                                                 .and(QueryBuilder.set("status", clusterTaskStatus.getTaskStatus().toString()))
                                                 .and(QueryBuilder.set("pause_time", clusterTaskStatus.getPauseTime()))

@@ -29,17 +29,20 @@ import org.slf4j.LoggerFactory;
 import com.datastax.driver.core.TableMetadata;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import org.apache.cassandra.repair.scheduler.config.TaskSchedulerConfig;
+import org.apache.cassandra.repair.scheduler.tasks.repair.RepairOptions;
 
 public class TableTaskConfig
 {
     private static final Logger logger = LoggerFactory.getLogger(TableTaskConfig.class);
 
+    private String schedule;
     private String name;
     private String keyspace;
-    private String schedule;
-    private RepairOptions repairOptions;
+    private String taskType;
+    private int interTaskDelayMinutes;
+    private int taskTimeoutSeconds;
     private List<String> postTaskHooks;
-    private int interRepairDelayMinutes;
+    private Map<String, String> taskConfig;
 
     private TableMetadata tableMetadata;
 
@@ -50,20 +53,32 @@ public class TableTaskConfig
     {
 
     }
+
     public TableTaskConfig(TaskSchedulerConfig config, String schedule)
     {
         this.schedule = schedule;
-        this.repairOptions = new RepairOptions(config, schedule);
-        this.postTaskHooks = config.getHooks(schedule);
+        postTaskHooks = config.getHooks(schedule);
+        taskConfig = config.getTaskConfig(schedule);
+        taskType = config.getTaskType(schedule);
         if (config.getIntertaskDelayMinutes(schedule) >= 0)
         {
-            interRepairDelayMinutes = config.getIntertaskDelayMinutes(schedule);
+            interTaskDelayMinutes = config.getIntertaskDelayMinutes(schedule);
         }
         else
         {
-            logger.warn("Setting interRepairDelayMinutes to < 0 is not allowed, using default of {}", 1440);
-            interRepairDelayMinutes = 1440;
+            logger.warn("Setting interTaskDelayMinutes to < 0 is not allowed, using default of {}", 1440);
+            interTaskDelayMinutes = 1440;
         }
+        if (config.getTaskTimeoutInS(schedule) >= 0)
+        {
+            taskTimeoutSeconds = config.getTaskTimeoutInS(schedule);
+        }
+        else
+        {
+            logger.warn("Setting task_timeout_seconds to < 0 is not allowed, using default of {}", 1800);
+            taskTimeoutSeconds = 1800;
+        }
+
         tableMetadata = null;
     }
 
@@ -94,42 +109,47 @@ public class TableTaskConfig
         this.keyspace = keyspace;
         return this;
     }
-    @JsonIgnore
-    public boolean isRepairEnabled()
+
+    public String getTaskType()
     {
-        return repairOptions.getType() != RepairType.DISABLED;
+        return taskType;
     }
 
-    @JsonIgnore
-    public boolean isIncremental()
+    public TableTaskConfig setTaskType(String taskType)
     {
-        return repairOptions.getType().equals(RepairType.INCREMENTAL);
-    }
-
-    public Integer getInterRepairDelayMinutes()
-    {
-        return interRepairDelayMinutes;
-    }
-
-    public TableTaskConfig setInterRepairDelayMinutes(int interRepairDelayMinutes)
-    {
-        if (interRepairDelayMinutes < 0)
-        {
-            logger.warn("Setting intertask_delay_minutes to < 0 is not allowed, using default of {}", this.interRepairDelayMinutes);
-            return this;
-        }
-        this.interRepairDelayMinutes = interRepairDelayMinutes;
+        this.taskType = taskType;
         return this;
     }
 
-    public RepairOptions getRepairOptions()
+    public Integer getInterTaskDelayMinutes()
     {
-        return repairOptions;
+        return interTaskDelayMinutes;
     }
 
-    public TableTaskConfig setRepairOptions(RepairOptions repairOptions)
+    public TableTaskConfig setInterTaskDelayMinutes(int interTaskDelayMinutes)
     {
-        this.repairOptions = repairOptions;
+        if (interTaskDelayMinutes < 0)
+        {
+            logger.warn("Setting intertask_delay_minutes to < 0 is not allowed, using default of {}", this.interTaskDelayMinutes);
+            return this;
+        }
+        this.interTaskDelayMinutes = interTaskDelayMinutes;
+        return this;
+    }
+
+    public Integer getTaskTimeoutSeconds()
+    {
+        return taskTimeoutSeconds;
+    }
+
+    public TableTaskConfig setTaskTimeoutSeconds(int taskTimeoutSeconds)
+    {
+        if (taskTimeoutSeconds < 0)
+        {
+            logger.warn("Setting task_timeout_seconds to < 0 is not allowed, using default of {}", this.taskTimeoutSeconds);
+            return this;
+        }
+        this.taskTimeoutSeconds = taskTimeoutSeconds;
         return this;
     }
 
@@ -145,6 +165,17 @@ public class TableTaskConfig
     public TableTaskConfig setPostTaskHooks(List<String> postTaskHooks)
     {
         this.postTaskHooks = postTaskHooks;
+        return this;
+    }
+
+    public Map<String, String> getTaskConfig()
+    {
+        return taskConfig;
+    }
+
+    public TableTaskConfig setTaskConfig(Map<String, String> taskConfig)
+    {
+        this.taskConfig = taskConfig;
         return this;
     }
 
@@ -175,23 +206,12 @@ public class TableTaskConfig
      */
     public TableTaskConfig clone(TableTaskConfig tableConfig)
     {
-        this.repairOptions = tableConfig.getRepairOptions();
-        this.interRepairDelayMinutes = tableConfig.getInterRepairDelayMinutes();
+        this.interTaskDelayMinutes = tableConfig.getInterTaskDelayMinutes();
         this.postTaskHooks = tableConfig.getPostTaskHooks();
+        this.taskConfig = tableConfig.getTaskConfig();
         return this;
     }
 
-    @Override
-    public String toString()
-    {
-        return "TableConfig{" + "name='" + name + '\'' +
-               ", keyspace='" + keyspace + '\'' +
-               ", schedule=" + schedule +
-               ", interRepairDelayMinutes=" + interRepairDelayMinutes +
-               ", repairOptions=" + repairOptions +
-               ", postTaskHooks=" + postTaskHooks +
-               '}';
-    }
 
     public Map<String, String> toMap()
     {
@@ -199,12 +219,26 @@ public class TableTaskConfig
         configMap.put("keyspace", keyspace);
         configMap.put("name", name);
         configMap.put("schedule", schedule);
-        configMap.put("inter_repair_delay_minutes", String.valueOf(interRepairDelayMinutes));
-        configMap.put("repair_type", repairOptions.getType().toString());
-        configMap.put("repair_workers", String.valueOf(repairOptions.getNumWorkers()));
-        configMap.put("repair_split_strategy", repairOptions.getSplitStrategy().toString());
-        configMap.put("repair_parallelism", repairOptions.getParallelism().toString());
-        configMap.put("repair_seconds_to_wait", String.valueOf(repairOptions.getSecondsToWait()));
+        configMap.put("inter_repair_delay_minutes", String.valueOf(interTaskDelayMinutes));
+        configMap.put("task_timeout_seconds", String.valueOf(taskTimeoutSeconds));
+        configMap.put("task_config", taskConfig.toString());
+        configMap.put("hooks", postTaskHooks.toString());
         return configMap;
+    }
+
+    @Override
+    public String toString()
+    {
+        return "TableTaskConfig{" +
+               "schedule='" + schedule + '\'' +
+               ", name='" + name + '\'' +
+               ", keyspace='" + keyspace + '\'' +
+               ", taskType='" + taskType + '\'' +
+               ", interTaskDelayMinutes=" + interTaskDelayMinutes +
+               ", taskTimeoutSeconds=" + taskTimeoutSeconds +
+               ", postTaskHooks=" + postTaskHooks +
+               ", taskConfig=" + taskConfig +
+               ", tableMetadata=" + tableMetadata +
+               '}';
     }
 }

@@ -25,18 +25,18 @@ import org.slf4j.LoggerFactory;
 import com.datastax.driver.core.Session;
 import org.apache.cassandra.repair.scheduler.config.TaskSchedulerContext;
 import org.apache.cassandra.repair.scheduler.dao.cass.CassDaoUtil;
-import org.apache.cassandra.repair.scheduler.dao.cass.RepairConfigDaoImpl;
+import org.apache.cassandra.repair.scheduler.dao.cass.TableTaskConfigDaoImpl;
 import org.apache.cassandra.repair.scheduler.dao.cass.TaskHookDaoImpl;
 import org.apache.cassandra.repair.scheduler.dao.cass.TaskProcessDaoImpl;
 import org.apache.cassandra.repair.scheduler.dao.cass.TaskSequenceDaoImpl;
 import org.apache.cassandra.repair.scheduler.dao.cass.TaskTableStatusDao;
-import org.apache.cassandra.repair.scheduler.dao.model.IRepairConfigDao;
+import org.apache.cassandra.repair.scheduler.dao.model.ITableTaskConfigDao;
 import org.apache.cassandra.repair.scheduler.dao.model.ITaskHookDao;
 import org.apache.cassandra.repair.scheduler.dao.model.ITaskProcessDao;
 import org.apache.cassandra.repair.scheduler.dao.model.ITaskSequenceDao;
 import org.apache.cassandra.repair.scheduler.dao.model.ITaskTableStatusDao;
 
-import static org.apache.cassandra.repair.scheduler.RepairUtil.initSession;
+import static org.apache.cassandra.repair.scheduler.TaskUtil.initSession;
 
 /**
  * TaskDaoManager, entry point for repair daos, this is the only entry point for talking to
@@ -49,10 +49,10 @@ public class TaskDaoManager
     private static final Logger logger = LoggerFactory.getLogger(TaskDaoManager.class);
 
     private final ITaskProcessDao taskProcessDao;
-    private final ITaskTableStatusDao repairStatusDao;
-    private final ITaskSequenceDao repairSequenceDao;
-    private final ITaskHookDao repairHookDao;
-    private final IRepairConfigDao repairConfigDao;
+    private final ITaskTableStatusDao tableStatusDao;
+    private final ITaskSequenceDao taskSequenceDao;
+    private final ITaskHookDao taskHookDao;
+    private final ITableTaskConfigDao tableConfigDao;
     /**
      * Using repair session supplier, so that repair scheduler does not try to initiate session with
      * repair metadata persistent store on startup, rather it tries to establish the connection on first use
@@ -71,10 +71,10 @@ public class TaskDaoManager
         final CassDaoUtil daoUtil = new CassDaoUtil(context.getConfig(), stateSupplier);
 
         this.taskProcessDao = new TaskProcessDaoImpl(context, daoUtil);
-        this.repairStatusDao = new TaskTableStatusDao(context, daoUtil);
-        this.repairSequenceDao = new TaskSequenceDaoImpl(context, daoUtil);
-        this.repairHookDao = new TaskHookDaoImpl(context, daoUtil);
-        this.repairConfigDao = new RepairConfigDaoImpl(context, daoUtil);
+        this.tableStatusDao = new TaskTableStatusDao(context, daoUtil);
+        this.taskSequenceDao = new TaskSequenceDaoImpl(context, daoUtil);
+        this.taskHookDao = new TaskHookDaoImpl(context, daoUtil);
+        this.tableConfigDao = new TableTaskConfigDaoImpl(context, daoUtil);
     }
 
     public ITaskProcessDao getTaskProcessDao()
@@ -82,24 +82,24 @@ public class TaskDaoManager
         return taskProcessDao;
     }
 
-    public ITaskTableStatusDao getRepairStatusDao()
+    public ITaskTableStatusDao getTableStatusDao()
     {
-        return repairStatusDao;
+        return tableStatusDao;
     }
 
-    public ITaskSequenceDao getRepairSequenceDao()
+    public ITaskSequenceDao getTaskSequenceDao()
     {
-        return repairSequenceDao;
+        return taskSequenceDao;
     }
 
-    public ITaskHookDao getRepairHookDao()
+    public ITaskHookDao getTaskHookDao()
     {
-        return repairHookDao;
+        return taskHookDao;
     }
 
-    public IRepairConfigDao getRepairConfigDao()
+    public ITableTaskConfigDao getTableConfigDao()
     {
-        return repairConfigDao;
+        return tableConfigDao;
     }
 
     /**

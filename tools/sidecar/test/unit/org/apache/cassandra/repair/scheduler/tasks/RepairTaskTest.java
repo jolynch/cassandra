@@ -96,14 +96,14 @@ public class RepairTaskTest extends EmbeddedUnitTestBase
         repairTask = new RepairTask(contextSpy, taskDaoManagerSpy);
 
         repairProcessDaoSpy = Mockito.spy(taskDaoManagerSpy.getTaskProcessDao());
-        repairSequenceDaoSpy = Mockito.spy(taskDaoManagerSpy.getRepairSequenceDao());
-        repairStatusDaoSpy = Mockito.spy(taskDaoManagerSpy.getRepairStatusDao());
-        repairHookDaoSpy = Mockito.spy(taskDaoManagerSpy.getRepairHookDao());
+        repairSequenceDaoSpy = Mockito.spy(taskDaoManagerSpy.getTaskSequenceDao());
+        repairStatusDaoSpy = Mockito.spy(taskDaoManagerSpy.getTableStatusDao());
+        repairHookDaoSpy = Mockito.spy(taskDaoManagerSpy.getTaskHookDao());
 
         when(taskDaoManagerSpy.getTaskProcessDao()).thenReturn(repairProcessDaoSpy);
-        when(taskDaoManagerSpy.getRepairSequenceDao()).thenReturn(repairSequenceDaoSpy);
-        when(taskDaoManagerSpy.getRepairStatusDao()).thenReturn(repairStatusDaoSpy);
-        when(taskDaoManagerSpy.getRepairHookDao()).thenReturn(repairHookDaoSpy);
+        when(taskDaoManagerSpy.getTaskSequenceDao()).thenReturn(repairSequenceDaoSpy);
+        when(taskDaoManagerSpy.getTableStatusDao()).thenReturn(repairStatusDaoSpy);
+        when(taskDaoManagerSpy.getTaskHookDao()).thenReturn(repairHookDaoSpy);
     }
 
     @Test

@@ -34,7 +34,7 @@ import org.apache.cassandra.repair.scheduler.conn.CassandraInteraction;
 import org.apache.cassandra.repair.scheduler.conn.CassandraInteractionBase;
 import org.apache.cassandra.utils.FBUtilities;
 
-import static org.apache.cassandra.repair.scheduler.RepairUtil.initSession;
+import static org.apache.cassandra.repair.scheduler.TaskUtil.initSession;
 
 /**
  * TaskSchedulerContext holds C* session object to repairing cluster, config object

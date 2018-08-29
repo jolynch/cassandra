@@ -139,7 +139,7 @@ public class RepairSchedulerDaemon
      */
     public Map<String, List<TableTaskConfig>> getRepairConfig()
     {
-        return repairController.getRepairConfigDao().getRepairConfigs();
+        return repairController.getRepairConfigDao().getTableTaskConfigs();
     }
 
     /**
@@ -150,7 +150,7 @@ public class RepairSchedulerDaemon
      */
     public List<TableTaskConfig> getRepairConfig(String schedule)
     {
-        return repairController.getRepairConfigDao().getRepairConfigs(schedule);
+        return repairController.getRepairConfigDao().getTableTaskConfigs(schedule);
     }
 
     /**
@@ -162,10 +162,10 @@ public class RepairSchedulerDaemon
      */
     public boolean updateRepairConfig(String schedule, TableTaskConfig config)
     {
-        Set<String> validSchedules = repairController.getRepairConfigDao().getAllRepairSchedules();
+        Set<String> validSchedules = repairController.getRepairConfigDao().getAllTaskSchedules();
         if (validSchedules.contains(schedule))
         {
-            return repairController.getRepairConfigDao().saveRepairConfig(schedule, config);
+            return repairController.getRepairConfigDao().saveTaskConfig(schedule, config);
         }
         throw new RuntimeException(
         String.format("Can not save config to unknown schedule[%s]. Available schedules are: [%s]",

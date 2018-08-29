@@ -80,7 +80,7 @@ public final class SystemDistributedKeyspace
 
     public static final String TASK_HOOK_SEQUENCE = "task_hook_sequence";
 
-    public static final String REPAIR_CONFIG = "repair_config";
+    public static final String TASK_TABLE_CONFIG = "task_table_config";
 
     private static final TableMetadata RepairHistory =
         parse(REPAIR_HISTORY,
@@ -208,20 +208,19 @@ public final class SystemDistributedKeyspace
           ") WITH CLUSTERING ORDER BY (task_id DESC, node_id DESC) " +
           "AND compaction = {'class': 'LeveledCompactionStrategy'}");
 
-    private static final TableMetadata RepairConfig =
-    parse(REPAIR_CONFIG,
-          "Table Repair Configuration",
+    private static final TableMetadata TaskTableConfig =
+    parse(TASK_TABLE_CONFIG,
+          "Table Task Configuration",
           "CREATE TABLE %s (" +
-          " cluster_name text," +
+          "    cluster_name text," +
           "    schedule_name text," +
           "    keyspace_name text," +
           "    table_name text," +
-          "    type text," +
-          "    workers int," +
-          "    parallelism text," +
-          "    hooks list<text>," +
-          "    split_strategy text," +
+          "    task_type text," +
+          "    task_timeout_seconds int," +
           "    intertask_delay_minutes int," +
+          "    hooks list<text>," +
+          "    task_config map<string, string>," +
           "    PRIMARY KEY ((cluster_name), schedule_name, keyspace_name, table_name)" +
           ") WITH CLUSTERING ORDER BY (schedule_name ASC, keyspace_name ASC, table_name ASC )" +
           "AND compaction = {'class': 'LeveledCompactionStrategy'}");
@@ -239,7 +238,7 @@ public final class SystemDistributedKeyspace
     {
         return KeyspaceMetadata.create(SchemaConstants.DISTRIBUTED_KEYSPACE_NAME, KeyspaceParams.simple(3),
                                        Tables.of(RepairHistory, ParentRepairHistory, ViewBuildStatus,
-                                                 TaskProcess, TaskSequence, TaskTableStatus, TaskHookSequence, RepairConfig));
+                                                 TaskProcess, TaskSequence, TaskTableStatus, TaskHookSequence, TaskTableConfig));
     }
 
     public static void startParentRepair(UUID parent_id, String keyspaceName, String[] cfnames, RepairOption options)

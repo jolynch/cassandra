@@ -21,10 +21,10 @@ package org.apache.cassandra.repair.scheduler.dao.cass;
 import org.apache.cassandra.repair.RepairParallelism;
 import org.apache.cassandra.repair.scheduler.EmbeddedUnitTestBase;
 import org.apache.cassandra.repair.scheduler.config.TaskSchedulerContext;
-import org.apache.cassandra.repair.scheduler.dao.model.IRepairConfigDao;
-import org.apache.cassandra.repair.scheduler.entity.RepairOptions;
+import org.apache.cassandra.repair.scheduler.dao.model.ITableTaskConfigDao;
+import org.apache.cassandra.repair.scheduler.tasks.repair.RepairOptions;
 import org.apache.cassandra.repair.scheduler.entity.RepairSplitStrategy;
-import org.apache.cassandra.repair.scheduler.entity.RepairType;
+import org.apache.cassandra.repair.scheduler.tasks.repair.RepairType;
 import org.apache.cassandra.repair.scheduler.entity.TableTaskConfig;
 
 import org.junit.Assert;
@@ -35,13 +35,13 @@ import java.util.List;
 
 public class RepairConfigDaoImplTest extends EmbeddedUnitTestBase
 {
-    private IRepairConfigDao repairConfigDao;
+    private ITableTaskConfigDao repairConfigDao;
 
     @Before
     public void beforeMethod()
     {
         TaskSchedulerContext context = getContext();
-        repairConfigDao = new RepairConfigDaoImpl(context, getCassDaoUtil());
+        repairConfigDao = new TableTaskConfigDaoImpl(context, getCassDaoUtil());
 
         TableTaskConfig testConfig = new TableTaskConfig(context.getConfig(), context.getConfig().getDefaultSchedule());
         RepairOptions options = testConfig.getRepairOptions();
@@ -54,15 +54,15 @@ public class RepairConfigDaoImplTest extends EmbeddedUnitTestBase
         testConfig.setKeyspace("test_ks")
                   .setName("test_tbl")
                   .setRepairOptions(options)
-                  .setInterRepairDelayMinutes(123);
+                  .setInterTaskDelayMinutes(123);
 
-        repairConfigDao.saveRepairConfig("default", testConfig);
+        repairConfigDao.saveTaskConfig("default", testConfig);
     }
 
     @Test
     public void getRepairConfigs()
     {
-        List<TableTaskConfig> repairConfigs = repairConfigDao.getRepairConfigs("default");
+        List<TableTaskConfig> repairConfigs = repairConfigDao.getTableTaskConfigs("default");
         Assert.assertEquals(1, repairConfigs.size());
         Assert.assertEquals(RepairParallelism.SEQUENTIAL, repairConfigs.get(0).getRepairOptions().getParallelism());
         Assert.assertEquals(RepairSplitStrategy.Strategy.PARTITION, repairConfigs.get(0).getRepairOptions().getSplitStrategy().getStrategy());

@@ -18,12 +18,7 @@
 package org.apache.cassandra.repair.scheduler;
 
 import java.net.InetSocketAddress;
-import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import com.google.common.net.HostAndPort;
@@ -31,19 +26,18 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.datastax.driver.core.Cluster;
-import com.datastax.driver.core.QueryOptions;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.policies.DCAwareRoundRobinPolicy;
 import com.datastax.driver.core.policies.RoundRobinPolicy;
 import com.datastax.driver.core.policies.WhiteListPolicy;
 
 /**
- * Util class for repair scheduler
+ * Util class for task scheduler
  */
-public class RepairUtil
+public class TaskUtil
 {
     static final String DATE_PATTERN = "MM/dd/yyyy HH:mm:ss.SSS";
-    private static final Logger logger = LoggerFactory.getLogger(RepairUtil.class);
+    private static final Logger logger = LoggerFactory.getLogger(TaskUtil.class);
 
     /**
      * Get Keyspace and table name in Keyspace.TableName format

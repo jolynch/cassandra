@@ -16,13 +16,15 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.repair.scheduler.entity;
+package org.apache.cassandra.repair.scheduler.tasks.repair;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.repair.RepairParallelism;
 import org.apache.cassandra.repair.scheduler.config.TaskSchedulerConfig;
+import org.apache.cassandra.repair.scheduler.entity.RepairSplitStrategy;
+import org.apache.cassandra.repair.scheduler.entity.TableTaskConfig;
 
 public class RepairOptions
 {
@@ -40,8 +42,8 @@ public class RepairOptions
     // Configuration of merkel tree parallelism
     private RepairParallelism parallelism;
 
-    // Number of seconds to wait for a single repair command to finish before continuing
-    private int secondsToWait;
+    // Shared table config
+    private TableTaskConfig tableTaskConfig;
 
     /**
      * Default constructor needed for Jackson JSON Deserialization
@@ -51,17 +53,38 @@ public class RepairOptions
 
     }
 
-    public RepairOptions(TaskSchedulerConfig config, String schedule)
+    public RepairOptions(TaskSchedulerConfig config, TableTaskConfig tableTaskConfig)
     {
-        if (config.getWorkers(schedule) <= 0)
+        this.tableTaskConfig = tableTaskConfig;
+
+        // TODO: do we actually need to set this to 1?
+        // In testing with concurrent sessions incremental would just get stuck a lot...
+        if (repairOptions.getType() == RepairType.INCREMENTAL)
+            repairOptions.setNumWorkers(1);
+
+        if (hasColumn(row, "repair_timeout_seconds"))
+            repairOptions.setSecondsToWait(row.getInt("repair_timeout_seconds"));
+
+        tableTaskConfig.setRepairOptions(repairOptions);
+
+        this.repairType = RepairType.fromString(tableTaskConfig.getTaskConfig()
+                                                               .getOrDefault("repair_type", "disabled"));
+
+        int workers = 0;
+        try
+        {
+            workers = Integer.valueOf(taskConfig.getTaskConfig().get("workers"));
+        }
+            catch (NumberFormatException ignored) { }
+        if (workers <= 0)
             numWorkers = Math.max(1, (int) Math.ceil(Runtime.getRuntime().availableProcessors() / 2));
         else
-            numWorkers = config.getWorkers(schedule);
+            numWorkers = workers;
 
-        setSplitStrategy(config.getSplitStrategy(schedule));
-        setType(RepairType.valueOf(config.getRepairType(schedule)));
+        setSplitStrategy(taskConfig.getTaskConfig().getOrDefault("split_strategy", "disabled"));
+        setType(RepairType.valueOf(taskConfig.getOrDefault("repair_type", )));
         setParallelism(RepairParallelism.fromName(config.getParallelism(schedule)));
-        setSecondsToWait(config.getRepairTimeoutInS(schedule));
+        setSecondsToWait(config.getTaskTimeoutInS(schedule));
     }
 
     public RepairType getType()
@@ -113,26 +136,14 @@ public class RepairOptions
         return this;
     }
 
-    public int getSecondsToWait()
+    public TableTaskConfig getTableTaskConfig()
     {
-        return secondsToWait;
+        return tableTaskConfig;
     }
 
-    public RepairOptions setSecondsToWait(int secondsToWait)
+    public RepairOptions setTableTaskConfig(TableTaskConfig tableTaskConfig)
     {
-        this.secondsToWait = secondsToWait;
+        this.tableTaskConfig = tableTaskConfig;
         return this;
-    }
-
-    @Override
-    public String toString()
-    {
-        return "RepairOptions{" +
-               "repairType=" + repairType +
-               ", numWorkers=" + numWorkers +
-               ", splitStrategy=" + splitStrategy +
-               ", parallelism=" + parallelism +
-               ", secondsToWait=" + secondsToWait +
-               '}';
     }
 }

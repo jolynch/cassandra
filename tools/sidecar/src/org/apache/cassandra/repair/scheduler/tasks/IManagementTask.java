@@ -20,15 +20,13 @@ package org.apache.cassandra.repair.scheduler.tasks;
 
 import java.util.Optional;
 
-import com.google.common.util.concurrent.ListenableFuture;
-
-import org.apache.cassandra.repair.scheduler.dao.model.IRepairConfigDao;
+import org.apache.cassandra.repair.scheduler.dao.model.ITableTaskConfigDao;
 import org.apache.cassandra.repair.scheduler.entity.ClusterTaskStatus;
 import org.apache.cassandra.repair.scheduler.entity.LocalTaskStatus;
 import org.apache.cassandra.repair.scheduler.entity.TaskSequence;
 import org.apache.cassandra.repair.scheduler.entity.TableTaskConfig;
 import org.apache.cassandra.repair.scheduler.entity.TaskStatus;
-import org.apache.cassandra.repair.scheduler.hooks.IRepairHook;
+import org.apache.cassandra.repair.scheduler.hooks.ITaskHook;
 
 public interface IManagementTask
 {
@@ -48,7 +46,7 @@ public interface IManagementTask
 
     /** Generally left to the base class **/
 
-    public boolean runHook(IRepairHook hook, TableTaskConfig tableConfig);
+    public boolean runHook(ITaskHook hook, TableTaskConfig tableConfig);
 
     int getTaskId();
 
@@ -74,8 +72,8 @@ public interface IManagementTask
 
     void abortTaskOnStuckSequence(TaskSequence sequence);
 
-    public boolean finishClusterTask(LocalTaskStatus taskState)
+    public boolean finishClusterTask(LocalTaskStatus taskState);
 
-    IRepairConfigDao getRepairConfigDao();
+    ITableTaskConfigDao getRepairConfigDao();
 
 }

@@ -32,16 +32,13 @@ import org.slf4j.LoggerFactory;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Statement;
 import com.datastax.driver.core.querybuilder.QueryBuilder;
-import org.apache.cassandra.repair.RepairParallelism;
 import org.apache.cassandra.repair.scheduler.config.TaskSchedulerContext;
-import org.apache.cassandra.repair.scheduler.dao.model.IRepairConfigDao;
-import org.apache.cassandra.repair.scheduler.entity.RepairOptions;
-import org.apache.cassandra.repair.scheduler.entity.RepairType;
+import org.apache.cassandra.repair.scheduler.dao.model.ITableTaskConfigDao;
 import org.apache.cassandra.repair.scheduler.entity.TableTaskConfig;
 
-import static org.apache.cassandra.repair.scheduler.RepairUtil.getKsTbName;
+import static org.apache.cassandra.repair.scheduler.TaskUtil.getKsTbName;
 
-public class RepairConfigDaoImpl implements IRepairConfigDao
+public class TableTaskConfigDaoImpl implements ITableTaskConfigDao
 {
     private static final Logger logger = LoggerFactory.getLogger(TaskHookDaoImpl.class);
 
@@ -49,24 +46,24 @@ public class RepairConfigDaoImpl implements IRepairConfigDao
     private static String clusterName;
     private final CassDaoUtil daoUtil;
 
-    public RepairConfigDaoImpl(TaskSchedulerContext context, CassDaoUtil daoUtil)
+    public TableTaskConfigDaoImpl(TaskSchedulerContext context, CassDaoUtil daoUtil)
     {
         this.daoUtil = daoUtil;
         this.context = context;
     }
 
     /**
-     * Get table repair configurations/ overrides for all schedules
+     * Get table task configurations/ overrides for all schedules
      *
      * @return Map of TableRepairConfigs list keyed by schedule name
      */
     @Override
-    public Map<String, List<TableTaskConfig>> getRepairConfigs()
+    public Map<String, List<TableTaskConfig>> getTableTaskConfigs()
     {
-        Map<String, List<TableTaskConfig>> repairConfigListMap = new HashMap<>();
+        Map<String, List<TableTaskConfig>> tableConfigMap = new HashMap<>();
         Statement selectQuery = QueryBuilder.select()
                                             .from(context.getConfig().getTaskKeyspace(),
-                                                  context.getConfig().getRepairConfigTableName())
+                                                  context.getConfig().getTableConfigTableName())
                                             .where(QueryBuilder.eq("cluster_name", getClusterName()));
 
         daoUtil.execSelectStmtRepairDb(selectQuery)
@@ -74,20 +71,20 @@ public class RepairConfigDaoImpl implements IRepairConfigDao
                         {
                             TableTaskConfig tableTaskConfig = getTableRepairConfig(row);
                             String schedule = row.getString("schedule_name");
-                            repairConfigListMap.computeIfAbsent(schedule, k -> new ArrayList<>());
-                            repairConfigListMap.get(schedule).add(tableTaskConfig);
+                            tableConfigMap.computeIfAbsent(schedule, k -> new ArrayList<>());
+                            tableConfigMap.get(schedule).add(tableTaskConfig);
                         });
 
-        return repairConfigListMap;
+        return tableConfigMap;
     }
 
     @Override
-    public List<TableTaskConfig> getRepairConfigs(String scheduleName)
+    public List<TableTaskConfig> getTableTaskConfigs(String scheduleName)
     {
         List<TableTaskConfig> lstTableTaskConfig = new ArrayList<>();
         Statement selectQuery = QueryBuilder.select()
                                             .from(context.getConfig().getTaskKeyspace(),
-                                                  context.getConfig().getRepairConfigTableName())
+                                                  context.getConfig().getTableConfigTableName())
                                             .where(QueryBuilder.eq("cluster_name", getClusterName()))
                                             .and(QueryBuilder.eq("schedule_name", scheduleName));
 
@@ -100,12 +97,12 @@ public class RepairConfigDaoImpl implements IRepairConfigDao
     }
 
     @Override
-    public Set<String> getAllRepairSchedules()
+    public Set<String> getAllTaskSchedules()
     {
         Set<String> schedules = new HashSet<>();
         Statement selectQuery = QueryBuilder.select("schedule_name")
                                             .from(context.getConfig().getTaskKeyspace(),
-                                                  context.getConfig().getRepairConfigTableName())
+                                                  context.getConfig().getTableConfigTableName())
                                             .where(QueryBuilder.eq("cluster_name", getClusterName()));
 
         daoUtil.execSelectStmtRepairDb(selectQuery)
@@ -117,20 +114,20 @@ public class RepairConfigDaoImpl implements IRepairConfigDao
     }
 
     @Override
-    public boolean saveRepairConfig(String schedule, TableTaskConfig repairConfig)
+    public boolean saveTaskConfig(String schedule, TableTaskConfig repairConfig)
     {
         logger.info("Saving Repair Configuration for {}.{}", getClusterName(), schedule);
         try
         {
             Statement insertQuery = QueryBuilder.insertInto(context.getConfig().getTaskKeyspace(),
-                                                            context.getConfig().getRepairConfigTableName())
+                                                            context.getConfig().getTableConfigTableName())
                                                 .value("cluster_name", getClusterName())
                                                 .value("schedule_name", schedule)
                                                 .value("keyspace_name", repairConfig.getKeyspace())
                                                 .value("table_name", repairConfig.getName())
                                                 .value("parallelism", repairConfig.getRepairOptions().getParallelism().toString())
                                                 .value("type", repairConfig.getRepairOptions().getType().toString())
-                                                .value("intertask_delay_minutes", repairConfig.getInterRepairDelayMinutes())
+                                                .value("intertask_delay_minutes", repairConfig.getInterTaskDelayMinutes())
                                                 .value("workers", repairConfig.getRepairOptions().getNumWorkers())
                                                 .value("split_strategy", repairConfig.getRepairOptions().getSplitStrategy().toString())
                                                 .value("hooks", repairConfig.getPostTaskHooks());
@@ -149,7 +146,7 @@ public class RepairConfigDaoImpl implements IRepairConfigDao
      * Gets all repair enabled tables keyed by keyspace.table
      */
     @Override
-    public List<TableTaskConfig> getAllRepairEnabledTables(String scheduleName)
+    public List<TableTaskConfig> getAllTaskEnabledTables(String scheduleName)
     {
         // Get all tables by connecting local C* node and overlay that information with config information from
         // repair_config, using defaults for any tables not found in repair_config.
@@ -177,7 +174,7 @@ public class RepairConfigDaoImpl implements IRepairConfigDao
                }));
 
         // Apply any table specific overrides from the repair config
-        List<TableTaskConfig> allConfigs = getRepairConfigs(scheduleName);
+        List<TableTaskConfig> allConfigs = getTableTaskConfigs(scheduleName);
         for (TableTaskConfig tcDb : allConfigs)
         {
             TableTaskConfig tableConfig = returnMap.get(getKsTbName(tcDb.getKeyspace(), tcDb.getName()));
@@ -214,40 +211,25 @@ public class RepairConfigDaoImpl implements IRepairConfigDao
         return row.getColumnDefinitions().contains(columnName) && !row.isNull(columnName);
     }
 
-    private TableTaskConfig getTableRepairConfig(Row row)
+    private TableTaskConfig getTableTaskConfig(Row row)
     {
         TableTaskConfig tableTaskConfig = new TableTaskConfig(context.getConfig(), row.getString("schedule_name"))
                                               .setKeyspace(row.getString("keyspace_name"))
                                               .setName(row.getString("table_name"));
 
-        RepairOptions repairOptions = tableTaskConfig.getRepairOptions();
-
-        repairOptions.setType(RepairType.fromString(row.getString("type")));
 
         if (hasColumn(row, "intertask_delay_minutes"))
-            tableTaskConfig.setInterRepairDelayMinutes(row.getInt("intertask_delay_minutes"));
+            tableTaskConfig.setInterTaskDelayMinutes(row.getInt("intertask_delay_minutes"));
+
+        if (hasColumn(row, "task_timeout_seconds"))
+            tableTaskConfig.setTaskTimeoutSeconds(row.getInt("task_timeout_seconds"));
 
         if (hasColumn(row, "hooks"))
             tableTaskConfig.setPostTaskHooks(row.getList("hooks", String.class));
 
-        if (hasColumn(row, "parallelism"))
-            repairOptions.setParallelism(RepairParallelism.fromName(row.getString("parallelism")));
+        if (hasColumn(row, "task_config"))
+            tableTaskConfig.setTaskConfig(row.getMap("task_config", String.class, String.class));
 
-        if (hasColumn(row, "workers"))
-            repairOptions.setNumWorkers(row.getInt("workers"));
-
-        if (hasColumn(row, "split_strategy"))
-            repairOptions.setSplitStrategy(row.getString("split_strategy"));
-
-        // TODO: do we actually need to set this to 1?
-        // In testing with concurrent sessions incremental would just get stuck a lot...
-        if (repairOptions.getType() == RepairType.INCREMENTAL)
-            repairOptions.setNumWorkers(1);
-
-        if (hasColumn(row, "repair_timeout_seconds"))
-            repairOptions.setSecondsToWait(row.getInt("repair_timeout_seconds"));
-
-        tableTaskConfig.setRepairOptions(repairOptions);
         return tableTaskConfig;
     }
 

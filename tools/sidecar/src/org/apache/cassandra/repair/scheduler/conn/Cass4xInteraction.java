@@ -37,7 +37,7 @@ import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.metrics.CassandraMetricsRegistry;
 import org.apache.cassandra.repair.RepairParallelism;
 import org.apache.cassandra.repair.messages.RepairOption;
-import org.apache.cassandra.repair.scheduler.RepairUtil;
+import org.apache.cassandra.repair.scheduler.TaskUtil;
 import org.apache.cassandra.repair.scheduler.config.TaskSchedulerConfig;
 import org.apache.cassandra.repair.scheduler.entity.RepairSplitStrategy;
 import org.apache.cassandra.repair.scheduler.entity.TableRepairRangeContext;
@@ -64,7 +64,7 @@ public class Cass4xInteraction extends CassandraInteractionBase
     @Override
     public Map<String, String> getEndpointToHostIdMap()
     {
-        RepairUtil.checkState(tryGetConnection(), "JMXConnection is broken or not able to connect");
+        TaskUtil.checkState(tryGetConnection(), "JMXConnection is broken or not able to connect");
         return ssProxy.getEndpointWithPortToHostId();
     }
 
@@ -72,7 +72,7 @@ public class Cass4xInteraction extends CassandraInteractionBase
     @Override
     public Map<Range<Token>, List<String>> getRangeToEndpointMap(String keyspace)
     {
-        RepairUtil.checkState(tryGetConnection(), "JMXConnection is broken or not able to connect");
+        TaskUtil.checkState(tryGetConnection(), "JMXConnection is broken or not able to connect");
         Map<List<String>, List<String>> rangeToEndpointMap = ssProxy.getRangeToEndpointWithPortMap(keyspace);
         // Only consider valid ranges, ignoring incorrect datacenter definitions
         // Or zero replication factor keyspaces
@@ -88,7 +88,7 @@ public class Cass4xInteraction extends CassandraInteractionBase
     @Override
     public String getLocalEndpoint()
     {
-        RepairUtil.checkState(tryGetConnection(), "JMXConnection is broken or not able to connect");
+        TaskUtil.checkState(tryGetConnection(), "JMXConnection is broken or not able to connect");
         return ssProxy.getHostIdToEndpointWithPort().get(ssProxy.getLocalHostId());
     }
 
@@ -120,7 +120,7 @@ public class Cass4xInteraction extends CassandraInteractionBase
     @Override
     public List<Range<Token>> getTokenRangeSplits(TableRepairRangeContext rangeContext, Range<Token> range, RepairSplitStrategy strategy)
     {
-        RepairUtil.checkState(partitioner != null, "Partitioner not setup yet");
+        TaskUtil.checkState(partitioner != null, "Partitioner not setup yet");
         List<Range<Token>> splits = new ArrayList<>(Collections.singleton(range));
 
         try
@@ -163,7 +163,7 @@ public class Cass4xInteraction extends CassandraInteractionBase
             // Then adjust for very wide partitions, allowing splits due to data size as well.
             // Cassandra repairs very slowly, we (Netflix) observe around ~2 megabytes / second
             final int repairRateKBps = 2048;
-            final int repairMaxSizeKB = (repairRateKBps * (config.getDefaultRepairTimeoutInS()));
+            final int repairMaxSizeKB = (repairRateKBps * (config.getDefaultTaskTimeoutInS()));
             numSplits = Math.max(numSplits, (int) Math.max(1, kilobytesInRange / repairMaxSizeKB));
 
             // Ultimately, we also have to balance against too many small sstables overloading compaction.
@@ -221,7 +221,7 @@ public class Cass4xInteraction extends CassandraInteractionBase
     @Override
     public TableRepairRangeContext getTableRepairRangeContext(String keyspace, String table)
     {
-        RepairUtil.checkState(tryGetConnection(), "JMXConnection is broken or not able to connect");
+        TaskUtil.checkState(tryGetConnection(), "JMXConnection is broken or not able to connect");
 
         long estimatedCount = 1;
         long estimatedSize = 0;
@@ -299,7 +299,7 @@ public class Cass4xInteraction extends CassandraInteractionBase
     @Override
     public boolean isCassandraHealthy()
     {
-        RepairUtil.checkState(tryGetConnection(), "JMXConnection is broken or not able to connect");
+        TaskUtil.checkState(tryGetConnection(), "JMXConnection is broken or not able to connect");
 
         // Check if the node is available for clients
         try
@@ -338,7 +338,7 @@ public class Cass4xInteraction extends CassandraInteractionBase
     @Override
     public void cancelAllRepairs()
     {
-        RepairUtil.checkState(tryGetConnection(), "JMXConnection is broken or not able to connect");
+        TaskUtil.checkState(tryGetConnection(), "JMXConnection is broken or not able to connect");
         try
         {
             ssProxy.forceTerminateAllRepairSessions();
@@ -351,7 +351,7 @@ public class Cass4xInteraction extends CassandraInteractionBase
 
     public int triggerRepair(List<Range<Token>> ranges, RepairParallelism repairParallelism, boolean fullRepair, String keyspace, String table)
     {
-        RepairUtil.checkState(tryGetConnection(), "JMXConnection is broken or not able to connect");
+        TaskUtil.checkState(tryGetConnection(), "JMXConnection is broken or not able to connect");
         checkNotNull(ssProxy, "ssProxy is not properly connected");
         String msg = String.format("Triggering [%s] repair for table [%s.%s] with ranges [%s] and repair parallelism [%s]",
                                    fullRepair ? "full" : "incremental",

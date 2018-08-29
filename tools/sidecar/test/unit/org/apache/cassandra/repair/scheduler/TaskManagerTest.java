@@ -21,10 +21,10 @@ package org.apache.cassandra.repair.scheduler;
 import java.util.SortedSet;
 
 import org.apache.cassandra.repair.RepairParallelism;
-import org.apache.cassandra.repair.scheduler.entity.RepairOptions;
+import org.apache.cassandra.repair.scheduler.tasks.repair.RepairOptions;
 import org.apache.cassandra.repair.scheduler.entity.TaskSequence;
 import org.apache.cassandra.repair.scheduler.entity.TaskStatus;
-import org.apache.cassandra.repair.scheduler.entity.RepairType;
+import org.apache.cassandra.repair.scheduler.tasks.repair.RepairType;
 import org.apache.cassandra.repair.scheduler.entity.TableTaskConfig;
 
 import org.junit.Before;
@@ -55,9 +55,9 @@ public class TaskManagerTest extends EmbeddedUnitTestBase
         testConfig.setKeyspace("test_repair")
                   .setName("subrange_test")
                   .setRepairOptions(options)
-                  .setInterRepairDelayMinutes(10);
+                  .setInterTaskDelayMinutes(10);
 
-        daoManager.getRepairConfigDao().saveRepairConfig("default", testConfig);
+        daoManager.getTableConfigDao().saveTaskConfig("default", testConfig);
 
         // Incremental table
         options.setNumWorkers(2)
@@ -68,9 +68,9 @@ public class TaskManagerTest extends EmbeddedUnitTestBase
         testConfig.setKeyspace("test_repair")
                   .setName("incremental_test")
                   .setRepairOptions(options)
-                  .setInterRepairDelayMinutes(10);
+                  .setInterTaskDelayMinutes(10);
 
-        daoManager.getRepairConfigDao().saveRepairConfig("default", testConfig);
+        daoManager.getTableConfigDao().saveTaskConfig("default", testConfig);
 
         // Disabled table is inserted directly into the repair config to simulate someone supplying
         // _just_ the disabled type.
@@ -88,7 +88,7 @@ public class TaskManagerTest extends EmbeddedUnitTestBase
         // repair and everything succeeds instantly. So ... check really basic stuff and leave the rest
         // to the e2e tests.
         assertEquals(1, repairId);
-        SortedSet<TaskSequence> sequence = daoManager.getRepairSequenceDao().getRepairSequence(repairId);
+        SortedSet<TaskSequence> sequence = daoManager.getTaskSequenceDao().getRepairSequence(repairId);
         assertEquals(TaskStatus.FINISHED, sequence.first().getStatus());
         assertEquals(TaskStatus.HOOK_RUNNING,
                      daoManager.getTaskProcessDao().getClusterTaskStatus().get().getTaskStatus());

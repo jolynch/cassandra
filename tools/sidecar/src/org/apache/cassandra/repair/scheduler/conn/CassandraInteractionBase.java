@@ -35,7 +35,7 @@ import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.gms.FailureDetector;
 import org.apache.cassandra.gms.FailureDetectorMBean;
-import org.apache.cassandra.repair.scheduler.RepairUtil;
+import org.apache.cassandra.repair.scheduler.TaskUtil;
 import org.apache.cassandra.repair.scheduler.config.TaskSchedulerConfig;
 import org.apache.cassandra.service.StorageServiceMBean;
 import org.apache.cassandra.utils.FBUtilities;
@@ -93,7 +93,7 @@ public abstract class CassandraInteractionBase implements CassandraInteraction, 
     @Override
     public void addRepairNotificationListener(NotificationListener listener)
     {
-        RepairUtil.checkState(tryGetConnection(), "JMXConnection is broken or not able to connect");
+        TaskUtil.checkState(tryGetConnection(), "JMXConnection is broken or not able to connect");
         synchronized (repairListeners)
         {
             if (!repairListeners.contains(listener))
@@ -108,7 +108,7 @@ public abstract class CassandraInteractionBase implements CassandraInteraction, 
     @Override
     public void removeRepairNotificationListener(NotificationListener listener)
     {
-        RepairUtil.checkState(tryGetConnection(), "JMXConnection is broken or not able to connect");
+        TaskUtil.checkState(tryGetConnection(), "JMXConnection is broken or not able to connect");
         synchronized (repairListeners)
         {
             try
@@ -138,7 +138,7 @@ public abstract class CassandraInteractionBase implements CassandraInteraction, 
     @Override
     public String getLocalHostId()
     {
-        RepairUtil.checkState(tryGetConnection(), "JMXConnection is broken or not able to connect");
+        TaskUtil.checkState(tryGetConnection(), "JMXConnection is broken or not able to connect");
         // This is a really frequently called method and it doesn't change
         if (cachedHostId == null || System.currentTimeMillis() > (lastConnectionLookup + config.getJmxCacheTTL()))
             cachedHostId = ssProxy.getLocalHostId();
@@ -148,14 +148,14 @@ public abstract class CassandraInteractionBase implements CassandraInteraction, 
     @Override
     public String getLocalLoadString()
     {
-        RepairUtil.checkState(tryGetConnection(), "JMXConnection is broken or not able to connect");
+        TaskUtil.checkState(tryGetConnection(), "JMXConnection is broken or not able to connect");
         return ssProxy.getLoadString();
     }
 
     @Override
     public String getClusterName()
     {
-        RepairUtil.checkState(tryGetConnection(), "JMXConnection is broken or not able to connect");
+        TaskUtil.checkState(tryGetConnection(), "JMXConnection is broken or not able to connect");
         return ssProxy.getClusterName();
     }
 
@@ -198,7 +198,7 @@ public abstract class CassandraInteractionBase implements CassandraInteraction, 
 
     public void triggerCompaction(String keyspace, String... columnFamilies)
     {
-        RepairUtil.checkState(tryGetConnection(), "JMXConnection is broken or not able to connect");
+        TaskUtil.checkState(tryGetConnection(), "JMXConnection is broken or not able to connect");
         logger.info(String.format("Triggering compaction for table %s.[%s]", keyspace, Arrays.asList(columnFamilies)));
         try
         {
@@ -212,7 +212,7 @@ public abstract class CassandraInteractionBase implements CassandraInteraction, 
 
     public void triggerCleanup(int jobs, String keyspace, String... columnFamilies)
     {
-        RepairUtil.checkState(tryGetConnection(), "JMXConnection is broken or not able to connect");
+        TaskUtil.checkState(tryGetConnection(), "JMXConnection is broken or not able to connect");
         logger.info(String.format("Triggering cleanup for table %s.[%s]", keyspace, Arrays.asList(columnFamilies)));
         try
         {
@@ -226,7 +226,7 @@ public abstract class CassandraInteractionBase implements CassandraInteraction, 
 
     public void triggerFlush(String keyspace, String... columnFamilies)
     {
-        RepairUtil.checkState(tryGetConnection(), "JMXConnection is broken or not able to connect");
+        TaskUtil.checkState(tryGetConnection(), "JMXConnection is broken or not able to connect");
         logger.info(String.format("Triggering flush for table %s.%s", keyspace, Arrays.asList(columnFamilies)));
         try
         {

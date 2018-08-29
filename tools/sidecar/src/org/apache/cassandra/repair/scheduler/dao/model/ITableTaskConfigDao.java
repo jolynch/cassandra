@@ -27,7 +27,7 @@ import org.apache.cassandra.repair.scheduler.entity.TableTaskConfig;
 /**
  * Interface to get Table repair configurations/ overrides from configuration file defaults.
  */
-public interface IRepairConfigDao
+public interface ITableTaskConfigDao
 {
     /**
      * Get table repair configurations/ overrides for all schedules to current cluster
@@ -35,20 +35,20 @@ public interface IRepairConfigDao
      *
      * @return  Map of {@link TableTaskConfig} list keyed by schedule name
      */
-    Map<String, List<TableTaskConfig>> getRepairConfigs();
+    Map<String, List<TableTaskConfig>> getTableTaskConfigs();
 
     /**
      * Get table repair configurations/ overrides from defaults for a given schedule name to current cluster
      * @param scheduleName Schedule name to get the configs for
      * @return List of {@link TableTaskConfig} objects
      */
-    List<TableTaskConfig> getRepairConfigs(String scheduleName);
+    List<TableTaskConfig> getTableTaskConfigs(String scheduleName);
 
     /**
      * Gets all available repair schedules. These schedule names are from both config file and repair_config table
      * @return Set of schedule names
      */
-    Set<String> getAllRepairSchedules();
+    Set<String> getAllTaskSchedules();
 
     /**
      * Save table level repair config overrides per a given schedule
@@ -56,7 +56,7 @@ public interface IRepairConfigDao
      * @param repairConfig Table level repair configs/ overrides
      * @return boolean indicating the operation result.
      */
-    boolean saveRepairConfig(String schedule, TableTaskConfig repairConfig);
+    boolean saveTaskConfig(String schedule, TableTaskConfig repairConfig);
 
     /**
      * Gets all repair enabled tables for a give schedule. Get all tables by connecting local C* node and overlay
@@ -66,5 +66,5 @@ public interface IRepairConfigDao
      * @param scheduleName Schedule name
      * @return List of TableRepairConfigs
      */
-    List<TableTaskConfig> getAllRepairEnabledTables(String scheduleName);
+    List<TableTaskConfig> getAllTaskEnabledTables(String scheduleName);
 }

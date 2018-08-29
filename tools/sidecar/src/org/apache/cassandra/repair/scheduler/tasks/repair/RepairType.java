@@ -16,7 +16,7 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.repair.scheduler.entity;
+package org.apache.cassandra.repair.scheduler.tasks.repair;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

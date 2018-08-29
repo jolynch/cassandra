@@ -48,7 +48,7 @@ public class CleanupRepairHookTest extends EmbeddedUnitTestBase
     @Test
     public void verifyRepirHook_Cleanup() throws Exception
     {
-        CleanupRepairHook repairHook = new CleanupRepairHook();
+        CleanupTaskHook repairHook = new CleanupTaskHook();
         TableTaskConfig tableTaskConfig = new TableTaskConfig(context.getConfig(), context.getConfig().getDefaultSchedule()).setKeyspace(REPAIR_SCHEDULER_KS_NAME).setName("repair_config");
 
         repairHook.run(this.interactionSpy, tableTaskConfig);

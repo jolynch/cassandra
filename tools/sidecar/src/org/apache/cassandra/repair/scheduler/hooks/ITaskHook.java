@@ -15,25 +15,35 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.cassandra.repair.scheduler.hooks;
 
 import org.apache.cassandra.repair.scheduler.conn.CassandraInteraction;
 import org.apache.cassandra.repair.scheduler.entity.TableTaskConfig;
+import org.apache.cassandra.repair.scheduler.entity.TaskStatus;
 
 /**
- * Performs cleanup after repair
+ * Pluggable Repair Hooks. Performs post task actions.
+ * Designed to run any action that can be wrapped in run() method.
+ * Custom task hooks has to implement this interface, preferably in this package so that configs
+ * does not have to provide fully qualified class name.
  */
-public class CleanupRepairHook implements IRepairHook
+public interface ITaskHook
 {
-    @Override
-    public String getName()
-    {
-        return "CLEANUP";
-    }
+    /**
+     * Log friendly name for the hook
+     *
+     * @return Name of the hook
+     */
+    String getName();
 
-    @Override
-    public void run(CassandraInteraction interaction, TableTaskConfig tableConfig)
-    {
-        interaction.triggerCleanup(0, tableConfig.getKeyspace(), tableConfig.getName());
-    }
+    /**
+     * Perform post task hook action. E.g., compaction, cleanup, GET or POST rest calls
+     *
+     * @param interaction CassandraInteraction (Cassandra - JMX)
+     * @param tableConfig TableConfig object
+     * @throws Exception Exception in executing post task hook
+     */
+    TaskStatus run(CassandraInteraction interaction, TableTaskConfig tableConfig) throws Exception;
 }
+

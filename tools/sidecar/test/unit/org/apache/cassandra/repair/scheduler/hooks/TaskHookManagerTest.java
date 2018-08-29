@@ -24,22 +24,22 @@ import org.junit.Assert;
 import org.junit.Test;
 
 
-public class RepairHookManagerTest
+public class TaskHookManagerTest
 {
     @Test
     public void getRepairHook()
     {
-        Assert.assertFalse(RepairHookManager.getRepairHook("non").isPresent());
-        Assert.assertTrue(RepairHookManager.getRepairHook("CompactSTCSRepairHook").get() instanceof CompactSTCSRepairHook);
-        Assert.assertTrue(RepairHookManager.getRepairHook("CompactAllRepairHook").get() instanceof CompactAllRepairHook);
-        Assert.assertTrue(RepairHookManager.getRepairHook("CleanupRepairHook").get() instanceof CleanupRepairHook);
+        Assert.assertFalse(TaskHookManager.getRepairHook("non").isPresent());
+        Assert.assertTrue(TaskHookManager.getRepairHook("CompactSTCSTaskHook").get() instanceof CompactSTCSTaskHook);
+        Assert.assertTrue(TaskHookManager.getRepairHook("CompactAllTaskHook").get() instanceof CompactAllTaskHook);
+        Assert.assertTrue(TaskHookManager.getRepairHook("CleanupTaskHook").get() instanceof CleanupTaskHook);
     }
 
     @Test
     public void getRepairHooks()
     {
-        Assert.assertEquals(0, RepairHookManager.getRepairHooks(Arrays.asList("none", "foo", "bar")).size());
-        Assert.assertEquals(1, RepairHookManager.getRepairHooks(Arrays.asList("none", "CompactSTCSRepairHook", "bar")).size());
-        Assert.assertEquals(3, RepairHookManager.getRepairHooks(Arrays.asList("CleanupRepairHook", "CompactSTCSRepairHook", "CleanupRepairHook")).size());
+        Assert.assertEquals(0, TaskHookManager.getRepairHooks(Arrays.asList("none", "foo", "bar")).size());
+        Assert.assertEquals(1, TaskHookManager.getRepairHooks(Arrays.asList("none", "CompactSTCSTaskHook", "bar")).size());
+        Assert.assertEquals(3, TaskHookManager.getRepairHooks(Arrays.asList("CleanupTaskHook", "CompactSTCSTaskHook", "CleanupTaskHook")).size());
     }
 }

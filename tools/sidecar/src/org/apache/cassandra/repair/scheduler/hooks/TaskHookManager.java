@@ -29,11 +29,11 @@ import org.apache.cassandra.utils.FBUtilities;
 
 /**
  * This class is responsible for translation user specified compaction hooks to actionable tasks to repair scheduler.
- * RepairHookManager is a glue between table repair configurations and repair scheduler
+ * TaskHookManager is a glue between table repair configurations and repair scheduler
  */
-public class RepairHookManager
+public class TaskHookManager
 {
-    private static final Logger logger = LoggerFactory.getLogger(RepairHookManager.class);
+    private static final Logger logger = LoggerFactory.getLogger(TaskHookManager.class);
 
     /**
      * Gets repairHook from class name
@@ -42,7 +42,7 @@ public class RepairHookManager
      *                            simple class name
      * @return RepairHook if the classname matches with any class path
      */
-    static Optional<IRepairHook> getRepairHook(String repairHookClassName)
+    static Optional<ITaskHook> getRepairHook(String repairHookClassName)
     {
         try
         {
@@ -63,12 +63,12 @@ public class RepairHookManager
      * @param repairHookClassNames List of repair hook class names from config
      * @return Valid repair hooks
      */
-    public static List<IRepairHook> getRepairHooks(List<String> repairHookClassNames)
+    public static List<ITaskHook> getRepairHooks(List<String> repairHookClassNames)
     {
-        List<IRepairHook> repairHooks = new LinkedList<>();
+        List<ITaskHook> repairHooks = new LinkedList<>();
         for (String repairHookClassName : repairHookClassNames)
         {
-            Optional<IRepairHook> repairHook = RepairHookManager.getRepairHook(repairHookClassName);
+            Optional<ITaskHook> repairHook = TaskHookManager.getRepairHook(repairHookClassName);
 
             if (repairHook.isPresent())
             {

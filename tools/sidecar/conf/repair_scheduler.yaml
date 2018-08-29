@@ -108,9 +108,9 @@ schedules:
     workers: -1
 
     # The set of post repair hooks that should be run on a host once all neighbors are done repairing. Default is CLEANUP.
-    # Any class that implements the IRepairHook interface can be added a post repair hook. Multiple repair hooks are allowed
+    # Any class that implements the ITaskHook interface can be added a post repair hook. Multiple repair hooks are allowed
     # This setting is used only when it is not specified at table level repair configurations.
-    hooks: ["CleanupRepairHook"]
+    hooks: ["CleanupTaskHook"]
 
     task_name: 'RepairTask'
 

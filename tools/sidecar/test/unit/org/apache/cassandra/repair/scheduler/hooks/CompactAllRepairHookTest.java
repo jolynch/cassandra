@@ -55,7 +55,7 @@ public class CompactAllRepairHookTest extends EmbeddedUnitTestBase
     @Test
     public void verifySTCSRepirHook_Compaction()
     {
-        CompactAllRepairHook repairHook = new CompactAllRepairHook();
+        CompactAllTaskHook repairHook = new CompactAllTaskHook();
 
         TableMetadata tblMetadata = context.localSession().getCluster().getMetadata().getKeyspace(REPAIR_SCHEDULER_KS_NAME).getTable("repair_config");
         TableTaskConfig tableTaskConfig = new TableTaskConfig(context.getConfig(),
@@ -82,7 +82,7 @@ public class CompactAllRepairHookTest extends EmbeddedUnitTestBase
     @Test
     public void verifyLCSRepirHook_Compaction() throws Exception
     {
-        CompactAllRepairHook repairHook = new CompactAllRepairHook();
+        CompactAllTaskHook repairHook = new CompactAllTaskHook();
 
         TableMetadata tblMetadata = context.localSession().getCluster().getMetadata().getKeyspace(REPAIR_SCHEDULER_KS_NAME).getTable("repair_config");
         TableTaskConfig tableTaskConfig = new TableTaskConfig(context.getConfig(),
@@ -99,7 +99,7 @@ public class CompactAllRepairHookTest extends EmbeddedUnitTestBase
     @Test
     public void verifyNullMetadata_RepirHook_Compaction() throws Exception
     {
-        CompactAllRepairHook repairHook = new CompactAllRepairHook();
+        CompactAllTaskHook repairHook = new CompactAllTaskHook();
         TableTaskConfig tableTaskConfig = new TableTaskConfig(context.getConfig(),
                                                               context.getConfig().getDefaultSchedule())
                                               .setPostTaskHooks(Collections.singletonList("COMPACTION"))

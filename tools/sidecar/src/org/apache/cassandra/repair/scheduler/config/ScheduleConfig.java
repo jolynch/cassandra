@@ -23,19 +23,19 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * This class holds schedule specific repair settings/ configs
+ * This class holds schedule specific task settings/ configs
  */
 public class ScheduleConfig
 {
-    public String task_name = "RepairTask";
+    public String task_name = "NoOpTask";
 
-    public int task_timeout_in_s = 1800;
+    public String task_type = "scheduled";
 
-    public int workers = -1;
-
-    public List<String> hooks = Collections.singletonList("CleanupRepairHook");
+    public int task_timeout_seconds = 1800;
 
     public int intertask_delay_minutes = 1440;
+
+    public List<String> hooks = Collections.singletonList("NoOpHook");
 
     public Map<String, String> task_config = new HashMap<>();
 }

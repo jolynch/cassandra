@@ -65,7 +65,7 @@ public class TaskSchedulerConfig
 
     public String task_hook_sequence_tablename = "task_hook_sequence";
 
-    public String repair_config_tablename = "repair_config";
+    public String table_config_tablename = "repair_config";
 
     public int heartbeat_period_in_ms = 2000;
 
@@ -154,9 +154,9 @@ public class TaskSchedulerConfig
         return task_hook_sequence_tablename;
     }
 
-    public String getRepairConfigTableName()
+    public String getTableConfigTableName()
     {
-        return repair_config_tablename;
+        return table_config_tablename;
     }
 
     public int getHeartbeatPeriodInMs()
@@ -194,24 +194,29 @@ public class TaskSchedulerConfig
         return schedules.get(schedule).task_name;
     }
 
-    public int getRepairTimeoutInS(String schedule)
+    public String getTaskType(String schedule)
     {
-        return schedules.get(schedule).task_timeout_in_s;
+        return schedules.get(schedule).task_type;
     }
 
-    public int getDefaultRepairTimeoutInS()
+    public int getTaskTimeoutInS(String schedule)
     {
-        return schedules.get(default_schedules.get(0)).task_timeout_in_s;
+        return schedules.get(schedule).task_timeout_seconds;
     }
 
-    public int getWorkers(String schedule)
+    public int getDefaultTaskTimeoutInS()
     {
-        return schedules.get(schedule).workers;
+        return schedules.get(default_schedules.get(0)).task_timeout_seconds;
     }
 
     public List<String> getHooks(String schedule)
     {
         return schedules.get(schedule).hooks;
+    }
+
+    public Map<String, String> getTaskConfig(String schedule)
+    {
+        return schedules.get(schedule).task_config;
     }
 
     public int getIntertaskDelayMinutes(String schedule)

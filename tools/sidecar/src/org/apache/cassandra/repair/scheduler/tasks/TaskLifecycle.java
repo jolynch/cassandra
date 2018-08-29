@@ -18,7 +18,9 @@
 
 package org.apache.cassandra.repair.scheduler.tasks;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -35,6 +37,7 @@ import org.apache.cassandra.repair.scheduler.entity.TableTaskConfig;
 import org.apache.cassandra.repair.scheduler.entity.TaskMetadata;
 import org.apache.cassandra.repair.scheduler.entity.TaskSequence;
 import org.apache.cassandra.repair.scheduler.entity.TaskStatus;
+import org.apache.cassandra.repair.scheduler.metrics.RepairSchedulerMetrics;
 import org.joda.time.DateTime;
 
 public class TaskLifecycle
@@ -79,14 +82,14 @@ public class TaskLifecycle
      */
     public void prepareForTaskOnNode(int repairId, TaskSequence seq)
     {
-        daoManager.getRepairSequenceDao().markTaskStartedOnInstance(repairId, seq.getSeq());
+        daoManager.getTaskSequenceDao().markTaskStartedOnInstance(repairId, seq.getSeq());
     }
 
     /**
      */
     public void cleanupAfterTaskOnNode(TaskSequence sequence, TaskStatus status)
     {
-        daoManager.getRepairSequenceDao().markNodeDone(sequence.getTaskId(), sequence.getSeq(), status);
+        daoManager.getTaskSequenceDao().markNodeDone(sequence.getTaskId(), sequence.getSeq(), status);
     }
 
     /**
@@ -100,7 +103,7 @@ public class TaskLifecycle
         {
             // Check if repair is paused at either cluster level or node level, if so return false
             Optional<ClusterTaskStatus> crs = daoManager.getTaskProcessDao().getClusterTaskStatus(taskId);
-            Optional<TaskSequence> nrs = daoManager.getRepairSequenceDao().getMyNodeStatus(taskId);
+            Optional<TaskSequence> nrs = daoManager.getTaskSequenceDao().getMyNodeStatus(taskId);
 
             if ((crs.isPresent() && crs.get().getTaskStatus().isPaused())
                 || (nrs.isPresent() && nrs.get().getStatus().isPaused()))
@@ -153,7 +156,7 @@ public class TaskLifecycle
     {
         if (cassInteraction.isCassandraHealthy())
         {
-            daoManager.getRepairSequenceDao().updateHeartBeat(repairId, seq);
+            daoManager.getTaskSequenceDao().updateHeartBeat(repairId, seq);
         }
         else
         {
@@ -215,7 +218,7 @@ public class TaskLifecycle
      */
     private boolean isPostTaskHookExists(String scheduleName)
     {
-        List<TableTaskConfig> tableConfigs = daoManager.getRepairConfigDao().getAllRepairEnabledTables(scheduleName);
+        List<TableTaskConfig> tableConfigs = daoManager.getTableConfigDao().getAllTaskEnabledTables(scheduleName);
         return tableConfigs.stream().anyMatch(TableTaskConfig::shouldRunPostTaskHook);
     }
 
@@ -226,11 +229,11 @@ public class TaskLifecycle
     {
         logger.info("Checking to see if post task hook is complete on entire cluster for this taskId: {}", taskId);
 
-        Set<String> repairedNodes = daoManager.getRepairSequenceDao().getRepairSequence(taskId).stream()
+        Set<String> repairedNodes = daoManager.getTaskSequenceDao().getRepairSequence(taskId).stream()
                                               .map(TaskSequence::getNodeId)
                                               .collect(Collectors.toSet());
 
-        Set<String> finishedHookNodes = daoManager.getRepairHookDao().getLocalTaskHookStatus(taskId).stream()
+        Set<String> finishedHookNodes = daoManager.getTaskHookDao().getLocalTaskHookStatus(taskId).stream()
                                                   .filter(rm -> rm.getStatus().isCompleted())
                                                   .map(TaskMetadata::getNodeId)
                                                   .collect(Collectors.toSet());
@@ -239,5 +242,64 @@ public class TaskLifecycle
         logger.debug("Post repair hook status for entire cluster for this RepairId: {}, Status-isComplete: {}", taskId, isComplete);
 
         return isComplete;
+    }
+
+    public List<TableTaskConfig> prepareForRepairHookOnNode(TaskSequence sequence)
+    {
+        List<TableTaskConfig> repairHookEligibleTables = daoManager.getTableConfigDao()
+                                                                   .getAllTaskEnabledTables(sequence.getScheduleName())
+                                                                   .stream()
+                                                                   .filter(TableTaskConfig::shouldRunPostTaskHook)
+                                                                   .collect(Collectors.toList());
+        RepairSchedulerMetrics.instance.incNumTimesRepairHookStarted();
+        daoManager.getTaskHookDao().markLocalPostRepairHookStarted(sequence.getTaskId());
+
+        logger.info("C* Load before starting post repair hook(s) for taskId {}: {}",
+                    sequence.getTaskId(), cassInteraction.getLocalLoadString());
+
+        return repairHookEligibleTables;
+    }
+
+    /**
+     * Based on hook results, updates hook status table accordingly, logs appropriate information
+     * @param sequence Local instance information
+     * @param hookSuccess RepairHook statuses
+     */
+    public void cleanupAfterHookOnNode(TaskSequence sequence, Map<String, Boolean> hookSuccess)
+    {
+        if (hookSuccess.values().stream().allMatch(v -> v))
+        {
+            RepairSchedulerMetrics.instance.incNumTimesRepairHookCompleted();
+            daoManager.getTaskHookDao().markLocalPostRepairHookEnd(sequence.getTaskId(),
+                                                                   TaskStatus.FINISHED, hookSuccess);
+        }
+        else
+        {
+            logger.error("Failed to run post repair hook(s) for taskId: {}", sequence.getTaskId());
+
+            RepairSchedulerMetrics.instance.incNumTimesRepairHookFailed();
+            daoManager.getTaskHookDao().markLocalPostRepairHookEnd(sequence.getTaskId(),
+                                                                   TaskStatus.FAILED, hookSuccess);
+        }
+
+        logger.info("C* Load after completing post repair hook(s) for taskId {}: {}",
+                    sequence.getTaskId(), cassInteraction.getLocalLoadString());
+    }
+
+
+    /**
+     * All TableTaskConfigs grouped by schedule name.
+     *
+     * @return Map of schedule_name, List of TabletaskConfigs
+     */
+
+    public Map<String, List<TableTaskConfig>> getTableTaskConfigBySchedule()
+    {
+        Map<String, List<TableTaskConfig>> tableTaskConfigBySchedule = new HashMap<>();
+        for (String schedule : daoManager.getTableConfigDao().getAllTaskSchedules())
+        {
+            tableTaskConfigBySchedule.put(schedule, daoManager.getTableConfigDao().getAllTaskEnabledTables(schedule));
+        }
+        return tableTaskConfigBySchedule;
     }
 }

@@ -15,27 +15,35 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.cassandra.repair.scheduler.hooks;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.repair.scheduler.conn.CassandraInteraction;
 import org.apache.cassandra.repair.scheduler.entity.TableTaskConfig;
+import org.apache.cassandra.repair.scheduler.entity.TaskStatus;
 
 /**
- * Performs Compaction after repair. This class compacts everything
- * regardless of the compaction strategy (LCS, TWCS etc.,). If you are looking for STCS compaction only,
- * {@link CompactSTCSRepairHook} would be the alternative
+ * This is a No-Op repair hook, this is catch all scenario. Ideally should not executed in PROD.
+ * If you ar seeing No-Op repair hook log messages in the log, one of your post repair hook config classname
+ * is not found on the classpath
  */
-public class CompactAllRepairHook implements IRepairHook
+public class NoOpHook implements ITaskHook
 {
+    private static final Logger logger = LoggerFactory.getLogger(NoOpHook.class);
+
     @Override
     public String getName()
     {
-        return "COMPACT_ALL";
+        return "No-op";
     }
 
     @Override
-    public void run(CassandraInteraction interaction, TableTaskConfig tableConfig)
+    public TaskStatus run(CassandraInteraction interaction, TableTaskConfig tableConfig)
     {
-        interaction.triggerCompaction(tableConfig.getKeyspace(), tableConfig.getName());
+        logger.warn("{} logger has been executed. Is this expected?", this.getName());
+        return TaskStatus.FINISHED;
     }
 }

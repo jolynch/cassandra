@@ -21,6 +21,8 @@ package org.apache.cassandra.repair.scheduler.entity;
 import org.junit.Assert;
 import org.junit.Test;
 
+import org.apache.cassandra.repair.scheduler.tasks.repair.RepairType;
+
 public class RepairTypeTest
 {
     @Test

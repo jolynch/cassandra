@@ -30,7 +30,7 @@ import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Statement;
 import com.datastax.driver.core.querybuilder.QueryBuilder;
-import org.apache.cassandra.repair.scheduler.RepairUtil;
+import org.apache.cassandra.repair.scheduler.TaskUtil;
 import org.apache.cassandra.repair.scheduler.config.TaskSchedulerConfig;
 import org.apache.cassandra.repair.scheduler.config.TaskSchedulerContext;
 import org.apache.cassandra.repair.scheduler.conn.CassandraInteraction;
@@ -156,7 +156,7 @@ public class TaskTableStatusDao implements ITaskTableStatusDao
         catch (Exception e)
         {
             logger.error(String.format("Exception in getting repair status from repair_status table for node_id: %s, tableName: %s",
-                                       cassInteraction.getLocalHostId(), RepairUtil.getKsTbName(keyspace, table)), e);
+                                       cassInteraction.getLocalHostId(), TaskUtil.getKsTbName(keyspace, table)), e);
         }
         return res;
     }

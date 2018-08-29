@@ -41,15 +41,14 @@ import com.datastax.driver.core.Host;
 import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.repair.scheduler.TaskDaoManager;
 import org.apache.cassandra.repair.scheduler.config.TaskSchedulerContext;
-import org.apache.cassandra.repair.scheduler.dao.model.IRepairConfigDao;
+import org.apache.cassandra.repair.scheduler.dao.model.ITableTaskConfigDao;
 import org.apache.cassandra.repair.scheduler.entity.ClusterTaskStatus;
-import org.apache.cassandra.repair.scheduler.entity.LocalTaskStatus;
 import org.apache.cassandra.repair.scheduler.entity.RepairHost;
 import org.apache.cassandra.repair.scheduler.entity.TaskMetadata;
 import org.apache.cassandra.repair.scheduler.entity.TaskSequence;
 import org.apache.cassandra.repair.scheduler.entity.TaskStatus;
 import org.apache.cassandra.repair.scheduler.entity.TableTaskConfig;
-import org.apache.cassandra.repair.scheduler.hooks.IRepairHook;
+import org.apache.cassandra.repair.scheduler.hooks.ITaskHook;
 import org.apache.cassandra.repair.scheduler.metrics.RepairSchedulerMetrics;
 import org.joda.time.DateTime;
 
@@ -126,9 +125,9 @@ public abstract class BaseTask extends TaskLifecycle implements IManagementTask
     public Map<String, List<TableTaskConfig>> getTasksBySchedule()
     {
         Map<String, List<TableTaskConfig>> repairableTablesBySchedule = new HashMap<>();
-        for (String schedule : daoManager.getRepairConfigDao().getAllRepairSchedules())
+        for (String schedule : daoManager.getTableConfigDao().getAllTaskSchedules())
         {
-            repairableTablesBySchedule.put(schedule, daoManager.getRepairConfigDao().getAllRepairEnabledTables(schedule));
+            repairableTablesBySchedule.put(schedule, daoManager.getTableConfigDao().getAllTaskEnabledTables(schedule));
         }
         return repairableTablesBySchedule;
     }
@@ -154,33 +153,6 @@ public abstract class BaseTask extends TaskLifecycle implements IManagementTask
         return repairId;
     }
 
-    /**
-     * Checks if all nodes finished their repair or not by querying repair_sequence (node level status)
-     * table. Also responsible for ensuring that stuck sequences get cancelled.
-     * @param repairId RepairId to check the status for
-     * @return true/ false to inform the repair done status on cluster
-     */
-    public boolean isTaskDoneOnCluster(int repairId)
-    {
-        getStuckSequence(repairId).ifPresent(this::abortTaskOnStuckSequence);
-
-        SortedSet<TaskSequence> repairSeq = daoManager.getRepairSequenceDao().getRepairSequence(repairId);
-
-        long finishedRepairsCnt = repairSeq.stream().filter(rs -> rs.getStatus().isCompleted()).count();
-
-        // Have to check for > 0 in case of a race on this check before a node has a chance to generate
-        // the repair sequence elsewhere.
-        if (repairSeq.size() == finishedRepairsCnt && repairSeq.size() > 0)
-        {
-            return true;
-        }
-        else
-        {
-            logger.info("Not all nodes completed their repair for taskId: {}", repairId);
-        }
-        return false;
-    }
-
 
     /**
      * Populates endpoint/ nodes sequence map. This is done by only one node in the cluster.
@@ -192,8 +164,8 @@ public abstract class BaseTask extends TaskLifecycle implements IManagementTask
     public void populateTaskSequence(int repairId, String scheduleName)
     {
         List<RepairHost> hostsToRepair = getRepairHosts();
-        daoManager.getRepairConfigDao().getRepairConfigs(scheduleName);
-        daoManager.getRepairSequenceDao().persistEndpointSeqMap(repairId, scheduleName, hostsToRepair);
+        daoManager.getTableConfigDao().getTableTaskConfigs(scheduleName);
+        daoManager.getTaskSequenceDao().persistEndpointSeqMap(repairId, scheduleName, hostsToRepair);
     }
 
     /**
@@ -218,7 +190,7 @@ public abstract class BaseTask extends TaskLifecycle implements IManagementTask
     public boolean isSequenceRunningOnCluster(int taskId)
     {
         // Check underlying data store to see if there is any repair process running in the entire cluster
-        SortedSet<TaskSequence> taskSequence = daoManager.getRepairSequenceDao().getRepairSequence(taskId);
+        SortedSet<TaskSequence> taskSequence = daoManager.getTaskSequenceDao().getRepairSequence(taskId);
         Optional<TaskSequence> anyRunning = taskSequence.stream().filter(rs -> rs.getStatus().isStarted()).findFirst();
         String localId = cassInteraction.getLocalHostId();
 
@@ -229,7 +201,7 @@ public abstract class BaseTask extends TaskLifecycle implements IManagementTask
         }
 
         // Check repair_status table to see if any table level repairs (lowest repair tracking table) are running or not
-        List<TaskMetadata> repairHistory = daoManager.getRepairStatusDao().getTaskHistory(taskId);
+        List<TaskMetadata> repairHistory = daoManager.getTableStatusDao().getTaskHistory(taskId);
         for (TaskMetadata row : repairHistory)
         {
             if (!row.getStatus().isCompleted() && !localId.equalsIgnoreCase(row.getNodeId()))
@@ -239,6 +211,33 @@ public abstract class BaseTask extends TaskLifecycle implements IManagementTask
             }
         }
 
+        return false;
+    }
+
+    /**
+     * Checks if all nodes finished their repair or not by querying repair_sequence (node level status)
+     * table. Also responsible for ensuring that stuck sequences get cancelled.
+     * @param repairId RepairId to check the status for
+     * @return true/ false to inform the repair done status on cluster
+     */
+    public boolean isTaskDoneOnCluster(int repairId)
+    {
+        getStuckSequence(repairId).ifPresent(this::abortTaskOnStuckSequence);
+
+        SortedSet<TaskSequence> repairSeq = daoManager.getTaskSequenceDao().getRepairSequence(repairId);
+
+        long finishedRepairsCnt = repairSeq.stream().filter(rs -> rs.getStatus().isCompleted()).count();
+
+        // Have to check for > 0 in case of a race on this check before a node has a chance to generate
+        // the repair sequence elsewhere.
+        if (repairSeq.size() == finishedRepairsCnt && repairSeq.size() > 0)
+        {
+            return true;
+        }
+        else
+        {
+            logger.info("Not all nodes completed their task for taskId: {}", repairId);
+        }
         return false;
     }
 
@@ -258,7 +257,7 @@ public abstract class BaseTask extends TaskLifecycle implements IManagementTask
             int minutes = (int) TimeUnit.MINUTES.convert(context.getConfig().getRepairProcessTimeoutInS(), TimeUnit.SECONDS);
             if (crs.isPresent() &&
                 crs.get().getStartTime().before(DateTime.now().minusMinutes(minutes).toDate()) &&
-                daoManager.getRepairSequenceDao().getRepairSequence(taskId).size() == 0)
+                daoManager.getTaskSequenceDao().getRepairSequence(taskId).size() == 0)
             {
                 return true;
             }
@@ -283,7 +282,7 @@ public abstract class BaseTask extends TaskLifecycle implements IManagementTask
         logger.info("Getting latest in progress heartbeat for repair Id: {}", taskId);
         try
         {
-            SortedSet<TaskSequence> repairSeqSet = daoManager.getRepairSequenceDao().getRepairSequence(taskId);
+            SortedSet<TaskSequence> repairSeqSet = daoManager.getTaskSequenceDao().getRepairSequence(taskId);
             long minutes = TimeUnit.MINUTES.convert(context.getConfig().getRepairProcessTimeoutInS(), TimeUnit.SECONDS);
             for (TaskSequence taskSequence : repairSeqSet)
             {
@@ -334,7 +333,7 @@ public abstract class BaseTask extends TaskLifecycle implements IManagementTask
     protected SortedSet<TaskSequence> getMatchingRepairSequences(int repairId, Predicate<TaskSequence> include)
     {
         SortedSet<TaskSequence> matchingTaskSequences = new TreeSet<>();
-        SortedSet<TaskSequence> repairSeqSet = daoManager.getRepairSequenceDao().getRepairSequence(repairId);
+        SortedSet<TaskSequence> repairSeqSet = daoManager.getTaskSequenceDao().getRepairSequence(repairId);
 
         repairSeqSet.stream()
                     .filter(include)
@@ -350,7 +349,7 @@ public abstract class BaseTask extends TaskLifecycle implements IManagementTask
      * @param tableConfig table configuration as needed for repair hook
      * @return true/ false indicating the response of this method
      */
-    public boolean runHook(IRepairHook hook, TableTaskConfig tableConfig)
+    public boolean runHook(ITaskHook hook, TableTaskConfig tableConfig)
     {
         try
         {
@@ -365,8 +364,8 @@ public abstract class BaseTask extends TaskLifecycle implements IManagementTask
         return true;
     }
 
-    public IRepairConfigDao getRepairConfigDao()
+    public ITableTaskConfigDao getRepairConfigDao()
     {
-        return daoManager.getRepairConfigDao();
+        return daoManager.getTableConfigDao();
     }
 }

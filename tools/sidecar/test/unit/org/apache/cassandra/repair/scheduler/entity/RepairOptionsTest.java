@@ -20,6 +20,8 @@ package org.apache.cassandra.repair.scheduler.entity;
 
 import org.apache.cassandra.repair.scheduler.EmbeddedUnitTestBase;
 import org.apache.cassandra.repair.scheduler.config.TaskSchedulerConfig;
+import org.apache.cassandra.repair.scheduler.tasks.repair.RepairOptions;
+import org.apache.cassandra.repair.scheduler.tasks.repair.RepairType;
 
 import org.junit.Assert;
 import org.junit.Before;

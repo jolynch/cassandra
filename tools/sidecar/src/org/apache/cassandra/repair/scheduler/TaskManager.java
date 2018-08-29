@@ -41,8 +41,8 @@ import org.apache.cassandra.repair.scheduler.entity.NodeStatus;
 import org.apache.cassandra.repair.scheduler.entity.TaskSequence;
 import org.apache.cassandra.repair.scheduler.entity.TaskStatus;
 import org.apache.cassandra.repair.scheduler.entity.TableTaskConfig;
-import org.apache.cassandra.repair.scheduler.hooks.IRepairHook;
-import org.apache.cassandra.repair.scheduler.hooks.RepairHookManager;
+import org.apache.cassandra.repair.scheduler.hooks.ITaskHook;
+import org.apache.cassandra.repair.scheduler.hooks.TaskHookManager;
 import org.apache.cassandra.repair.scheduler.tasks.BaseTask;
 import org.apache.cassandra.repair.scheduler.tasks.IManagementTask;
 import org.apache.cassandra.repair.scheduler.tasks.TaskLifecycle;
@@ -279,27 +279,27 @@ public class TaskManager
      * In the case where we can't run repair on this node, we may be able to run post repair hooks if all
      * neighbors have repaired.
      *
-     * @param repairState The current state of repair on this node
+     * @param taskState The current state of repair on this node
      * @param ranRepair
      * @return true if this node can run post repair hooks at this time, false otherwise
      */
-    private boolean assessCurrentPostRepairHooks(LocalTaskStatus repairState, boolean ranRepair)
+    private boolean assessCurrentPostRepairHooks(LocalTaskStatus taskState, boolean ranRepair)
     {
-        boolean canRunHooks = (repairState.nodeStatus == NodeStatus.I_AM_DONE ||
-                               repairState.nodeStatus == NodeStatus.RUNNING_ELSEWHERE ||
+        boolean canRunHooks = (taskState.nodeStatus == NodeStatus.I_AM_DONE ||
+                               taskState.nodeStatus == NodeStatus.RUNNING_ELSEWHERE ||
                                ranRepair);
 
         boolean finished = false;
-        if (currentTask.isTaskDoneOnCluster(repairState.taskId) && canRunHooks)
+        if (currentTask.isTaskDoneOnCluster(taskState.taskId) && canRunHooks)
         {
             // This is almost always false
-            finished = taskLifecycle.finishClusterTask(repairState);
+            finished = taskLifecycle.finishClusterTask(taskState);
         }
 
         // Another thread can't be actively running repair hooks at this time.
         canRunHooks = canRunHooks && hasHookInitiated.compareAndSet(false, true);
         if (canRunHooks)
-            canRunHooks = canRunHooks && currentTask.amIReadyForPostTaskHook(repairState.taskId);
+            canRunHooks = canRunHooks && currentTask.amIReadyForPostTaskHook(taskState.taskId);
 
         return !finished && canRunHooks;
     }
@@ -309,11 +309,11 @@ public class TaskManager
     {
         if (clusterTaskStatus.getTaskStatus().readyToStartNew())
         {
-            Map<String, List<TableTaskConfig>> schedules = currentTask.getRepairableTablesBySchedule();
+            Map<String, List<TableTaskConfig>> schedules = taskLifecycle.getTableTaskConfigBySchedule();
             // We only support a single schedule right now
             if (schedules.size() > 1)
                 throw new RuntimeException(
-                    String.format("Repair scheduler only works with one schedule right now found: %s", schedules.keySet())
+                    String.format("Task scheduler only works with one schedule right now found: %s", schedules.keySet())
                 );
 
             Optional<Map.Entry<String, List<TableTaskConfig>>> schedule = schedules.entrySet().stream().findFirst();
@@ -322,18 +322,18 @@ public class TaskManager
                 List<TableTaskConfig> allTableConfigs = schedule.get().getValue();
                 if (allTableConfigs.size() > 0)
                 {
-                    allTableConfigs.sort(Comparator.comparing(TableTaskConfig::getInterRepairDelayMinutes));
-                    DateTime earlierTableRepairDt = new DateTime(clusterTaskStatus.getEndTime()).plusHours(allTableConfigs.get(0).getInterRepairDelayMinutes());
+                    allTableConfigs.sort(Comparator.comparing(TableTaskConfig::getInterTaskDelayMinutes));
+                    DateTime earlierTableRepairDt = new DateTime(clusterTaskStatus.getEndTime()).plusHours(allTableConfigs.get(0).getInterTaskDelayMinutes());
 
                     if (DateTime.now().isAfter(earlierTableRepairDt)
-                        || (clusterTaskStatus.getTaskDurationInMinutes() + allTableConfigs.get(0).getInterRepairDelayMinutes() * 60 >= 7 * 24 * 60)) //If repair duration time and min delay hours time is making up to more than 7 days, then start repair
+                        || (clusterTaskStatus.getTaskDurationInMinutes() + allTableConfigs.get(0).getInterTaskDelayMinutes() * 60 >= 7 * 24 * 60)) //If repair duration time and min delay hours time is making up to more than 7 days, then start repair
                     {
                         return true;
                     }
                     else
                     {
                         logger.warn("This node has recently repaired and does not need repair at this moment, recent repair completed time: {}," +
-                                    " next potential repair start time: {}", clusterTaskStatus.getEndTime().toString(), earlierTableRepairDt.toString(RepairUtil.DATE_PATTERN));
+                                    " next potential repair start time: {}", clusterTaskStatus.getEndTime().toString(), earlierTableRepairDt.toString(TaskUtil.DATE_PATTERN));
                         return false;
                     }
                 }
@@ -388,16 +388,16 @@ public class TaskManager
         try
         {
             logger.info("Starting post repair hook(s) for taskId: {}", repairId);
-            List<TableTaskConfig> repairHookEligibleTables = currentTask.prepareForRepairHookOnNode(seq);
+            List<TableTaskConfig> repairHookEligibleTables = taskLifecycle.prepareForRepairHookOnNode(seq);
 
 
             for (TableTaskConfig tableConfig : repairHookEligibleTables) {
                 // Read post repair hook types for the table, Load valid post repair hook types
-                List<IRepairHook> repairHooks = RepairHookManager.getRepairHooks(tableConfig.getPostTaskHooks());
+                List<ITaskHook> repairHooks = TaskHookManager.getRepairHooks(tableConfig.getPostTaskHooks());
 
                 // Run the post repair hooks in the order that was read above in sync fashion
                 // This way users can e.g. cleanup before compacting or vice versa
-                for (IRepairHook repairHook : repairHooks) {
+                for (ITaskHook repairHook : repairHooks) {
                     try {
                         logger.info("Starting post repair hook [{}] on table [{}]",
                                     repairHook.getName(), tableConfig.getKsTbName());
@@ -421,7 +421,7 @@ public class TaskManager
             logger.error("Exception during hook", e);
         }
 
-        currentTask.cleanupAfterHookOnNode(seq, hookSucceeded);
+        taskLifecycle.cleanupAfterHookOnNode(seq, hookSucceeded);
     }
 
     /*

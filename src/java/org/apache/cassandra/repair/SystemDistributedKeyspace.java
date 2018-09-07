@@ -72,6 +72,16 @@ public final class SystemDistributedKeyspace
 
     public static final String VIEW_BUILD_STATUS = "view_build_status";
 
+    public static final String REPAIR_PROCESS = "repair_process";
+
+    public static final String REPAIR_SEQUENCE = "repair_sequence";
+
+    public static final String REPAIR_STATUS = "repair_status";
+
+    public static final String REPAIR_HOOK_STATUS = "repair_hook_status";
+
+    public static final String REPAIR_CONFIG = "repair_config";
+
     private static final TableMetadata RepairHistory =
         parse(REPAIR_HISTORY,
                 "Repair history",
@@ -119,6 +129,103 @@ public final class SystemDistributedKeyspace
                      + "status text,"
                      + "PRIMARY KEY ((keyspace_name, view_name), host_id))");
 
+    private static final TableMetadata RepairProcess =
+        parse(REPAIR_PROCESS,
+            "Cluster wide Repair Process Tracking",
+              "CREATE TABLE %s ("
+                + "cluster_name    text,"
+                + "repair_id       int,"
+                + "created_node_id text,"
+                + "start_time      timestamp,"
+                + "end_time        timestamp,"
+                + "pause_time      timestamp,"
+                + "status          text,"
+                + "last_event      map<text, text>,"
+                + "PRIMARY KEY (cluster_name, repair_id)) "
+                + "WITH CLUSTERING ORDER BY (repair_id DESC) "
+                + "AND compaction = {'class': 'LeveledCompactionStrategy'}");
+
+    private static final TableMetadata RepairSequence =
+    parse(REPAIR_SEQUENCE,
+          "Node Repair Tracking within a Process",
+          "CREATE TABLE %s (" +
+          "    cluster_name     text," +
+          "    repair_id       int," +
+          "    seq             int," +
+          "    node_id         text," +
+          "    created_nodeid  text," +
+          "    create_time     timestamp," +
+          "    start_time      timestamp," +
+          "    end_time        timestamp," +
+          "    pause_time      timestamp," +
+          "    status          text," +
+          "    last_heartbeat  timestamp," +
+          "    schedule_name   text," +
+          "    last_event      map<text, text>," +
+          "    PRIMARY KEY ((cluster_name), repair_id, seq)" +
+          ") WITH CLUSTERING ORDER BY (repair_id DESC, seq ASC)" +
+          "AND compaction = {'class': 'LeveledCompactionStrategy'}");
+
+    private static final TableMetadata RepairStatus =
+    parse(REPAIR_STATUS,
+          "Table Repair Tracking within a Sequence",
+          "CREATE TABLE %s (" +
+          "    cluster_name    text," +
+          "    repair_id       int," +
+          "    node_id         text," +
+          "    keyspace_name   text," +
+          "    table_name      text," +
+          "    repair_cmd      int," +
+          "    start_token     text," +
+          "    end_token       text," +
+          "    create_time     timestamp," +
+          "    start_time      timestamp," +
+          "    end_time        timestamp," +
+          "    pause_time      timestamp," +
+          "    status          text," +
+          "    last_event      map<text,text>," +
+          "    config          map<text, text>," +
+          "    PRIMARY KEY ((cluster_name, repair_id), node_id, keyspace_name, table_name, repair_cmd, start_token, end_token) " +
+          ") WITH compaction = {'class': 'LeveledCompactionStrategy'}");
+
+    private static final TableMetadata RepairHookStatus =
+    parse(REPAIR_HOOK_STATUS,
+    "Post repair Tracking within a Sequence",
+          "CREATE TABLE %s (" +
+          "    cluster_name    text," +
+          "    repair_id       int," +
+          "    node_id         text," +
+          "    created_node_id text," +
+          "    create_time     timestamp," +
+          "    start_time      timestamp," +
+          "    end_time        timestamp," +
+          "    pause_time      timestamp," +
+          "    status          text," +
+          "    last_heartbeat  timestamp," +
+          "    last_event      map<text,text>," +
+          "    PRIMARY KEY ((cluster_name), repair_id, node_id)" +
+          ") WITH CLUSTERING ORDER BY (repair_id DESC, node_id DESC) " +
+          "AND compaction = {'class': 'LeveledCompactionStrategy'}");
+
+    private static final TableMetadata RepairConfig =
+    parse(REPAIR_CONFIG,
+          "Table Repair Configuration",
+          "CREATE TABLE %s (" +
+          " cluster_name text," +
+          "    schedule_name text," +
+          "    keyspace_name text," +
+          "    table_name text," +
+          "    type text," +
+          "    workers int," +
+          "    parallelism text," +
+          "    hooks list<text>," +
+          "    split_strategy text," +
+          "    interrepair_delay_minutes int," +
+          "    PRIMARY KEY ((cluster_name), schedule_name, keyspace_name, table_name)" +
+          ") WITH CLUSTERING ORDER BY (schedule_name ASC, keyspace_name ASC, table_name ASC )" +
+          "AND compaction = {'class': 'LeveledCompactionStrategy'}");
+
+
     private static TableMetadata parse(String table, String description, String cql)
     {
         return CreateTableStatement.parse(format(cql, table), SchemaConstants.DISTRIBUTED_KEYSPACE_NAME)
@@ -129,7 +236,9 @@ public final class SystemDistributedKeyspace
 
     public static KeyspaceMetadata metadata()
     {
-        return KeyspaceMetadata.create(SchemaConstants.DISTRIBUTED_KEYSPACE_NAME, KeyspaceParams.simple(3), Tables.of(RepairHistory, ParentRepairHistory, ViewBuildStatus));
+        return KeyspaceMetadata.create(SchemaConstants.DISTRIBUTED_KEYSPACE_NAME, KeyspaceParams.simple(3),
+                                       Tables.of(RepairHistory, ParentRepairHistory, ViewBuildStatus,
+                                                 RepairProcess, RepairSequence, RepairStatus, RepairHookStatus, RepairConfig));
     }
 
     public static void startParentRepair(UUID parent_id, String keyspaceName, String[] cfnames, RepairOption options)

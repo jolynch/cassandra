@@ -1,0 +1,135 @@
+# Repair Scheduler (automated continuous repairs) config YAML - EXPERIMENTAL in 4.0
+
+# Enable / disable Repair Scheduler on a per-node basis.
+repair_scheduler_enabled: true
+
+# API Port where Repair scheduler REST API listens for
+repair_api_port: 7198
+
+# Class name which describes/ implements connection handling to C* via JMX. This could be different
+# depending on C* versions
+cassandra_interaction_class: "org.apache.cassandra.repair.scheduler.conn.Cass4xInteraction"
+
+# Address of the C* node's JMX endpoint.
+local_jmx_address: "127.0.0.1"
+
+# JMX port for C* node, this is configured via -Dcassandra.jmx.local.port when starting C*
+local_jmx_port: 7199
+
+# The cluster to repair, this native endpoint is used to discover tables needed to repair, splits and other stuff
+# This must be local C* native endpoint, providing non local C* endpoint would lead to unexpected behavior in repair
+# scheduler. Format of the endpoint: <IP/Endpoint:Port>, for simplicity IP and Port are given in 1 input
+repair_native_endpoint: "127.0.0.1:9042"
+
+# Endpoints for storing the repair scheduler state in a (different) Cassandra cluster.
+# For simplicity IP and Port are given in string input. List of seeds are encouraged over single endpoint
+# Default is same as repair_native_endpoints
+repair_state_persistence_endpoints: ["127.0.0.1:9042"]
+
+# Time in milliseconds between successive JMX connection monitor, if this is set to too high, RepairScheduler
+# might be blind to C*. This interval setting does not connect RepairScheduler to C* on every interval, rather
+# it checks the JMX connection health to decide on connection attempt. Default is 1 minute
+#jmx_connection_monitor_period_in_ms: 60000
+
+# Cache expiry time in milliseconds to reduce the pressure/ delay in calling JMX methods
+# frequently (e.g., LocalHostId, ConnectionId).
+# Default value is 10 seconds
+#jmx_cache_ttl: 10000
+
+# Username to connect to JMX when C* JMX is authenticated.
+# Refer to -Dcom.sun.management.jmxremote.authenticate=true in cassandra-env.sh to find out if C* JMX is authenticated.
+#jmx_username
+
+# Password to connect to JMX when C* JMX is authenticated.
+# Refer to -Dcom.sun.management.jmxremote.password.file in cassandra-env.sh to find out if C* JMX is authenticated.
+#jmx_password
+
+# Consistency level to read from C* when querying repair scheduler tables
+#read_cl:
+
+# Consistency level to write to C* when inserting/ updating repair scheduler tables
+#write_cl
+
+# Keyspace name for Repair scheduler tables
+repair_keyspace: "system_distributed"
+
+# Table name for storing repair sequence, Repair status for each node in a cluster.
+# Defines the sequence that nodes will repair in
+repair_sequence_tablename: "repair_sequence"
+
+# Table name for storing repair status for a cluster. Defines a “run” of repair on a cluster
+repair_process_tablename: "repair_process"
+
+# Table name for storing repair configuration. This tables stores repair configuration overrides for a particular table
+repair_config_tablename: "repair_config"
+
+# Table name for storing repair status for a particular subrange within a node within a cluster.
+repair_status_tablename: "repair_status"
+
+# Table name for storing post repair hook status for a particular node
+repairhook_status_tablename: "repair_hook_status"
+
+# The number of days to keep repair state around. Default is 6 months.
+# Be very very careful setting this too low (lower than your longest repair duration).
+repair_entryttl_in_days: 182
+
+# Interval time in milliseconds for sending HeartBeat to repair_sequence table for other nodes to cancel as needed.
+# Default is 2 seconds
+heartbeat_period_in_ms: 2000
+
+#The number of seconds to wait for another node to state transition
+# (e.g. generate a sequence, start repair, become healthy, etc …). Set this if you see lots of cancellations.
+repair_process_timeout_in_s: 1800
+
+## Below settings are Schedule based
+
+# Cluster default repair schedule name
+# v1 does not support multiple schedules
+default_schedules: ["default"]
+
+# Schedule specific settings
+schedules:
+  default:
+    # Repair Scheduler breaks repair up into lots of small pieces of work that can be
+    # incrementally done and individually timed out, repair scheduler adaptively change the subrange per table to ensure
+    # that every piece of repair work is of similar size (target ~30 minute pieces of work), this can be tuned
+    # using below parameter. Default is 30 minutes. Set this if you see lots of repair cancellations, so technically
+    # it is - The number of seconds to wait for a single range repair to make progress.
+    repair_timeout_in_s: 1800
+
+    # Type of repair to be performed by default when not specified at table level repair configurations.
+    # Allowed values are DISABLED, INCREMENTAL, FULL. Default is FULL
+    repair_type: "FULL"
+
+    # Number of repair workers to run repairs with. Use this before you use parallelism to improve repair speed.
+    # Default  = max(1, #cores / 2). Use -1 for auto detecting, positive integer to set the desired value
+    # This setting is used only when it is not specified at table level repair configurations.
+    workers: -1
+
+    # The set of post repair hooks that should be run on a host once all neighbors are done repairing. Default is CLEANUP.
+    # Any class that implements the IRepairHook interface can be added a post repair hook. Multiple repair hooks are allowed
+    # This setting is used only when it is not specified at table level repair configurations.
+    hooks: ["CleanupRepairHook"]
+
+    # Specify the degree of parallelism when calculating the merkle trees in a repair job. Allowed values are
+    # sequential, parallel, dc_parallel. Default is sequential
+    # This setting is used only when it is not specified at table level repair configurations.
+    parallelism: "sequential"
+
+    # How to split primary ranges for full repair. Can take the value:[ <integer>, <integer_mb>, <integer>_dry_run,
+    # <integer_mb>_dry_run, adaptive, adaptive_dry_run]. If adaptive, the cluster will automatically determine
+    # an optimal value taking into account balancing overstreaming vs too many small sstables. If one of the integer
+    # values we split ranges either on estimated size or estimated partitions. If any of those versions plus dry run,
+    # no splits are performed but they are included in the resulting repair status entries.
+    # Default value is adaptive
+    split_strategy: "adaptive"
+
+    # The delay between repair runs in minutes. The default value is 24 hours
+    # Use this to “offset” repairs from each other, e.g. if you know that repairs take 2 days,
+    # and you want to repair every 10 days, setting a delay of ~3 days might make sense.
+    interrepair_delay_minutes:  1440
+
+    # Time to wait for the token range to be healthy before marking the token range repair as FAILED
+    # Default value is 15 min, which means if your C* cluster (token range) is not healthy for more than 15 min,
+    # repair_scheduler would start recording the token range repairs as FAILED
+    repair_wait_for_healthy_in_ms: 900000

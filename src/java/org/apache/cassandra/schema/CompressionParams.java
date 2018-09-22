@@ -65,6 +65,7 @@ public final class CompressionParams
     public static final String CHUNK_LENGTH_IN_KB = "chunk_length_in_kb";
     public static final String ENABLED = "enabled";
     public static final String MIN_COMPRESS_RATIO = "min_compress_ratio";
+    public static final String DICTIONARY_SIZE = "dictionary_size_in_kb";
 
     public static final CompressionParams DEFAULT = new CompressionParams(LZ4Compressor.create(Collections.<String, String>emptyMap()),
                                                                           DEFAULT_CHUNK_LENGTH,

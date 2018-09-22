@@ -57,4 +57,25 @@ public interface ICompressor
     public boolean supports(BufferType bufferType);
 
     public Set<String> supportedOptions();
+
+    /**
+     * For compression algorithms that support dictionaries, this method will be called before
+     */
+    default public boolean supportsDictionaries()
+    {
+        return false;
+    }
+
+    default void maybeSample(ByteBuffer input)
+    {
+    }
+
+    default byte[] getDictionary()
+    {
+        return null;
+    }
+
+    default void putDictionary(byte[] dictionary)
+    {
+    }
 }

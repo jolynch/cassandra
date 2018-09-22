@@ -95,7 +95,7 @@ public class CompressedSequentialWriter extends SequentialWriter
         maxCompressedLength = parameters.maxCompressedLength();
 
         /* Index File (-CompressionInfo.db component) and it's header */
-        metadataWriter = CompressionMetadata.Writer.open(parameters, offsetsPath);
+        metadataWriter = CompressionMetadata.Writer.open(parameters, compressor, offsetsPath);
 
         this.sstableMetadataCollector = sstableMetadataCollector;
         crcMetadata = new ChecksumWriter(new DataOutputStream(Channels.newOutputStream(channel)));
@@ -164,6 +164,9 @@ public class CompressedSequentialWriter extends SequentialWriter
             metadataWriter.addOffset(chunkOffset);
             chunkCount++;
 
+            if (compressor.supportsDictionaries())
+                compressor.maybeSample(toWrite);
+
             // write out the compressed data
             toWrite.flip();
             channel.write(toWrite);
@@ -179,6 +182,8 @@ public class CompressedSequentialWriter extends SequentialWriter
         }
         if (toWrite == buffer)
             buffer.position(compressedLength);
+
+
 
         // next chunk should be written right after current + length of the checksum (int)
         chunkOffset += compressedLength + 4;

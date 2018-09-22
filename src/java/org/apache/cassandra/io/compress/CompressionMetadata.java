@@ -133,6 +133,12 @@ public class CompressionMetadata
             dataLength = stream.readLong();
             compressedFileLength = compressedLength;
             chunkOffsets = readChunkOffsets(stream);
+            if (parameters.getSstableCompressor().supportsDictionaries())
+            {
+                byte[] dictionary = readDictionary(stream);
+                parameters.getSstableCompressor().putDictionary(dictionary);
+            }
+
         }
         catch (FileNotFoundException e)
         {
@@ -236,6 +242,25 @@ public class CompressionMetadata
         }
     }
 
+    private byte[] readDictionary(DataInput input)
+    {
+        final int dictSize;
+        byte[] dictionary;
+
+        try
+        {
+            dictSize = input.readInt();
+            dictionary = new byte[dictSize];
+            for (int i = 0; i < dictSize; i++)
+                dictionary[i] = input.readByte();
+        }
+        catch (IOException e)
+        {
+            return null;
+        }
+        return dictionary;
+    }
+
     /**
      * Get a chunk of compressed data (offset, length) corresponding to given position
      *
@@ -329,6 +354,7 @@ public class CompressionMetadata
     {
         // path to the file
         private final CompressionParams parameters;
+        private final ICompressor compressor;
         private final String filePath;
         private int maxCount = 100;
         private SafeMemory offsets = new SafeMemory(maxCount * 8L);
@@ -337,15 +363,16 @@ public class CompressionMetadata
         // provided by user when setDescriptor
         private long dataLength, chunkCount;
 
-        private Writer(CompressionParams parameters, String path)
+        private Writer(CompressionParams parameters, ICompressor compressor, String path)
         {
             this.parameters = parameters;
+            this.compressor = compressor;
             filePath = path;
         }
 
-        public static Writer open(CompressionParams parameters, String path)
+        public static Writer open(CompressionParams parameters, ICompressor compressor, String path)
         {
-            return new Writer(parameters, path);
+            return new Writer(parameters, compressor, path);
         }
 
         public void addOffset(long offset)
@@ -412,6 +439,13 @@ public class CompressionMetadata
                 writeHeader(out, dataLength, count);
                 for (int i = 0; i < count; i++)
                     out.writeLong(offsets.getLong(i * 8L));
+
+                if (compressor.supportsDictionaries() && compressor.getDictionary() != null)
+                {
+                    byte[] dictionary = compressor.getDictionary();
+                    out.writeInt(dictionary.length);
+                    out.write(dictionary);
+                }
 
                 out.flush();
                 SyncUtil.sync(fos);

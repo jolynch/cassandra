@@ -107,6 +107,9 @@ public class ColumnIndex
         writePartitionHeader(iterator);
         this.headerLength = writer.position() - initialPosition;
 
+        if (headerLength < 0) {
+            System.out.println("wat da fuck");
+        }
         while (iterator.hasNext())
             add(iterator.next());
 
@@ -284,6 +287,10 @@ public class ColumnIndex
             RowIndexEntry.Serializer.serializeOffsets(buffer, indexOffsets, columnIndexCount);
 
         // we should always have at least one computed index block, but we only write it out if there is more than that.
+        if (! (columnIndexCount > 0 && headerLength >= 0))
+        {
+            System.out.println("crap");
+        }
         assert columnIndexCount > 0 && headerLength >= 0;
     }
 

@@ -20,25 +20,19 @@ package org.apache.cassandra.io.compress;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.github.luben.zstd.Zstd;
+import com.github.luben.zstd.ZstdDictCompress;
 import com.github.luben.zstd.ZstdDictDecompress;
 import com.github.luben.zstd.ZstdDictTrainer;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.schema.CompressionParams;
-import org.apache.cassandra.utils.ExpiringMap;
-import org.apache.cassandra.utils.JVMStabilityInspector;
-import org.apache.cassandra.utils.Pair;
-import org.xerial.snappy.Snappy;
-import org.xerial.snappy.SnappyError;
 
 /**
  * Supports streaming dictionary compression
@@ -49,7 +43,7 @@ public class ZstdCompressor implements ICompressor
 {
     private static final Logger logger = LoggerFactory.getLogger(ZstdCompressor.class);
 
-    private static final int DEFAULT_COMPRESSION_LEVEL = 0;
+    private static final int DEFAULT_COMPRESSION_LEVEL = 1;
     // Wait for 4 megabytes of data by default before training a dictionary
     // if zero disables training
     private static final int DEFAULT_SAMPLE_KB = 4096;
@@ -61,7 +55,11 @@ public class ZstdCompressor implements ICompressor
     private final int compressionLevel;
     private final int sampleSizeKb;
     private final int dictionarySizeKb;
-    private byte[] dictionary;
+    // Held off-heap by Zstd itself
+    private ZstdDictDecompress decompressDict;
+    // Held on heap only during writing of an sstable
+    private byte[] trainingDictionary;
+    private ZstdDictCompress compressDict;
 
     public static ZstdCompressor create(Map<String, String> args) throws ConfigurationException
     {
@@ -81,7 +79,7 @@ public class ZstdCompressor implements ICompressor
 
     public int initialCompressedBufferLength(int chunkLength)
     {
-        return 0;
+        return (int) Zstd.compressBound(chunkLength);
     }
 
     public int uncompress(byte[] input, int inputOffset, int inputLength, byte[] output, int outputOffset) throws IOException
@@ -101,23 +99,24 @@ public class ZstdCompressor implements ICompressor
 
     public void compress(ByteBuffer input, ByteBuffer output) throws IOException
     {
-        if (dictionary != null)
-            Zstd.compress(input, output, dictionary, compressionLevel);
+        int size;
+        if (compressDict != null)
+            size = Zstd.compress(output, input, compressDict);
         else
-            Zstd.compress(input, output, compressionLevel);
+            size = Zstd.compress(output, input, compressionLevel);
+
+        output.position(size);
     }
 
     public void uncompress(ByteBuffer input, ByteBuffer output) throws IOException
     {
-        if (dictionary != null)
-        {
-            int result = Zstd.decompress(input, output, dictionary);
-            // Some of the data isn't compressed with the dictionary ...
-            if (!Zstd.isError(result))
-                return;
-        }
+        if (decompressDict != null)
+            Zstd.decompress(output, input, decompressDict);
+        else
+            Zstd.decompress(output, input);
 
-        Zstd.decompress(input, output);
+        output.position(output.limit());
+        input.position(input.limit());
     }
 
     public BufferType preferredBufferType()
@@ -143,7 +142,7 @@ public class ZstdCompressor implements ICompressor
 
     public void maybeSample(ByteBuffer input)
     {
-        if (dictionary != null)
+        if (compressDict != null)
             return;
 
         if (dictTrainer == null)
@@ -152,17 +151,24 @@ public class ZstdCompressor implements ICompressor
 
         boolean stillSampling = dictTrainer.addSample(input.duplicate().array());
         if (!stillSampling)
-            dictionary = dictTrainer.trainSamples();
+        {
+            logger.trace("Sufficient samples for dictionary, training now");
+            trainingDictionary = dictTrainer.trainSamples();
+            compressDict = new ZstdDictCompress(trainingDictionary, compressionLevel);
+            decompressDict = new ZstdDictDecompress(trainingDictionary);
+            logger.trace("Done training dictionary");
+        }
     }
 
     public void putDictionary(byte[] dictionary)
     {
-        this.dictionary = dictionary;
+        decompressDict = new ZstdDictDecompress(dictionary);
     }
 
     public byte[] getDictionary()
     {
-        return dictionary;
+
+        return trainingDictionary;
     }
 
     public static Integer validateCompressionLevel(String compressionLevel) throws ConfigurationException

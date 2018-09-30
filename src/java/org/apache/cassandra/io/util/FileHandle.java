@@ -360,7 +360,7 @@ public class FileHandle extends SharedCloseableImpl
                     if (compressed)
                     {
                         regions = MmappedRegions.map(channelCopy, compressionMetadata);
-                        rebuffererFactory = maybeCached(new CompressedChunkReader.Mmap(channelCopy, compressionMetadata,
+                         rebuffererFactory = maybeCached(new CompressedChunkReader.Mmap(channelCopy, compressionMetadata,
                                                                                        regions));
                     }
                     else

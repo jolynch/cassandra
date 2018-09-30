@@ -84,6 +84,7 @@ public class BigTableWriter extends SSTableWriter
                                              descriptor.filenameFor(Component.COMPRESSION_INFO),
                                              new File(descriptor.filenameFor(Component.DIGEST)),
                                              writerOption,
+                                             // Crap this only gets called once per column family 
                                              metadata().params.compression,
                                              metadataCollector);
         }

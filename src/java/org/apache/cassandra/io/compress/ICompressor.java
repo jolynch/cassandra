@@ -59,7 +59,8 @@ public interface ICompressor
     public Set<String> supportedOptions();
 
     /**
-     * For compression algorithms that support dictionaries, this method will be called before
+     * For compression algorithms that support dictionaries, Cassandra will call the following methods as
+     * approriate for training, retrieving on write, and loading on read
      */
     default public boolean supportsDictionaries()
     {

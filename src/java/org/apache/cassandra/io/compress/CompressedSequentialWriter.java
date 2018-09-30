@@ -26,6 +26,7 @@ import java.nio.channels.Channels;
 import java.util.Optional;
 import java.util.zip.CRC32;
 
+import org.apache.cassandra.config.ParameterizedClass;
 import org.apache.cassandra.io.FSReadError;
 import org.apache.cassandra.io.FSWriteError;
 import org.apache.cassandra.io.sstable.CorruptSSTableException;
@@ -86,7 +87,10 @@ public class CompressedSequentialWriter extends SequentialWriter
                             .bufferType(parameters.getSstableCompressor().preferredBufferType())
                             .finishOnClose(option.finishOnClose())
                             .build());
-        this.compressor = parameters.getSstableCompressor();
+        if (!parameters.getSstableCompressor().supportsDictionaries() || parameters.getSstableCompressor().getDictionary() != null)
+            this.compressor = parameters.getSstableCompressor();
+        else
+            this.compressor = CompressionParams.createCompressor(new ParameterizedClass(parameters.getSstableCompressor().getClass().getName(), parameters.getOtherOptions()));
         this.digestFile = Optional.ofNullable(digestFile);
 
         // buffer for compression should be the same size as buffer itself
@@ -164,8 +168,7 @@ public class CompressedSequentialWriter extends SequentialWriter
             metadataWriter.addOffset(chunkOffset);
             chunkCount++;
 
-            if (compressor.supportsDictionaries())
-                compressor.maybeSample(toWrite);
+            metadataWriter.maybeSample(toWrite);
 
             // write out the compressed data
             toWrite.flip();

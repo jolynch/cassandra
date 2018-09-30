@@ -99,13 +99,29 @@ public class ZstdCompressor implements ICompressor
 
     public void compress(ByteBuffer input, ByteBuffer output) throws IOException
     {
-        int size;
+        long size;
+        int oPos = output.position();
+
         if (compressDict != null)
-            size = Zstd.compress(output, input, compressDict);
+        {
+            size = Zstd.compressDirectByteBufferFastDict(
+                output,
+                output.position(),
+                output.limit() - output.position(),
+                input,
+                input.position(),
+                input.limit() - input.position(),
+                compressDict
+            );
+            if (Zstd.isError(size)) {
+                throw new RuntimeException(Zstd.getErrorName(size));
+            }
+        }
         else
             size = Zstd.compress(output, input, compressionLevel);
 
-        output.position(size);
+        input.position(input.limit());
+        output.position(oPos + (int) size);
     }
 
     public void uncompress(ByteBuffer input, ByteBuffer output) throws IOException
@@ -149,14 +165,19 @@ public class ZstdCompressor implements ICompressor
             dictTrainer = new ZstdDictTrainer(sampleSizeKb * 1024, dictionarySizeKb * 1024);
 
 
-        boolean stillSampling = dictTrainer.addSample(input.duplicate().array());
+        ByteBuffer buf = input.duplicate();
+        buf.flip();
+        byte[] sample = new byte[buf.remaining()];
+        buf.get(sample);
+
+        boolean stillSampling = dictTrainer.addSample(sample);
         if (!stillSampling)
         {
-            logger.trace("Sufficient samples for dictionary, training now");
+            logger.info("Sufficient samples for dictionary, training now");
             trainingDictionary = dictTrainer.trainSamples();
             compressDict = new ZstdDictCompress(trainingDictionary, compressionLevel);
             decompressDict = new ZstdDictDecompress(trainingDictionary);
-            logger.trace("Done training dictionary");
+            logger.info("Done training dictionary");
         }
     }
 

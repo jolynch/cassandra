@@ -17,6 +17,7 @@
  */
 package org.apache.cassandra.io.compress;
 
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.io.BufferedOutputStream;
@@ -133,12 +134,9 @@ public class CompressionMetadata
             dataLength = stream.readLong();
             compressedFileLength = compressedLength;
             chunkOffsets = readChunkOffsets(stream);
-            if (parameters.getSstableCompressor().supportsDictionaries())
-            {
-                byte[] dictionary = readDictionary(stream);
+            byte[] dictionary = readDictionary(stream);
+            if (dictionary != null)
                 parameters.getSstableCompressor().putDictionary(dictionary);
-            }
-
         }
         catch (FileNotFoundException e)
         {
@@ -162,6 +160,10 @@ public class CompressionMetadata
         this.compressedFileLength = compressedLength;
         this.chunkOffsets = offsets;
         this.chunkOffsetsSize = offsetsSize;
+        if (parameters.getSstableCompressor().supportsDictionaries())
+        {
+            System.out.println("Fooey");
+        }
     }
 
     public ICompressor compressor()
@@ -386,6 +388,12 @@ public class CompressionMetadata
             offsets.setLong(8L * count++, offset);
         }
 
+        public void maybeSample(ByteBuffer sample)
+        {
+            if (compressor.supportsDictionaries())
+                compressor.maybeSample(sample);
+        }
+
         private void writeHeader(DataOutput out, long dataLength, int chunks)
         {
             try
@@ -470,6 +478,9 @@ public class CompressionMetadata
             // grab our actual compressed length from the next offset from our the position we're opened to
             if (tCount < this.count)
                 compressedLength = tOffsets.getLong(tCount * 8L);
+
+            if (parameters.getSstableCompressor().supportsDictionaries() && compressor.getDictionary() != null)
+                parameters.getSstableCompressor().putDictionary(compressor.getDictionary());
 
             return new CompressionMetadata(filePath, parameters, tOffsets, tCount * 8L, dataLength, compressedLength);
         }

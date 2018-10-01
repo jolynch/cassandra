@@ -35,6 +35,7 @@ import org.apache.cassandra.exceptions.ReadTimeoutException;
 import org.apache.cassandra.exceptions.RequestFailureReason;
 import org.apache.cassandra.locator.Endpoints;
 import org.apache.cassandra.locator.InetAddressAndPort;
+import org.apache.cassandra.net.LatencyMeasurementType;
 import org.apache.cassandra.net.RequestCallback;
 import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.Verb;
@@ -153,9 +154,9 @@ public class ReadCallback<E extends Endpoints<E>, P extends ReplicaPlan.ForRead<
 
 
     @Override
-    public boolean trackLatencyForSnitch()
+    public LatencyMeasurementType latencyMeasurementType()
     {
-        return true;
+        return LatencyMeasurementType.READ;
     }
 
     @Override

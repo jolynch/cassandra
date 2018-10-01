@@ -172,23 +172,52 @@ public class StartupClusterConnectivityChecker
                         TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos), numDown);
         }
 
+        // Send out a second round of ping messages which give the LatencySubscribers (e.g. the dsnitch) a latency
+        // landscape of the cluster that does not include handshake latency (See CASSANDRA-14459)
+        sendPingMessages(peers, LatencyMeasurementType.PROBE, msg -> null);
+
         return succeeded;
     }
 
     /**
-     * Sends a "connection warmup" message to each peer in the collection, on every {@link ConnectionType}
-     * used for internode messaging (that is not gossip).
+     * Sends ping messages to open up the initial handshakes with nodes and appropriately decrements the
+     * passed CountDownLatches as we receive responses.
      */
     private void sendPingMessages(Set<InetAddressAndPort> peers, Map<String, CountDownLatch> dcToRemainingPeers,
                                   AckMap acks, Function<InetAddressAndPort, String> getDatacenter)
     {
-        RequestCallback responseHandler = msg -> {
+        Function<Message, Void> handleAck = msg -> {
             if (acks.incrementAndCheck(msg.from()))
             {
                 String datacenter = getDatacenter.apply(msg.from());
                 // We have to check because we might only have the local DC in the map
                 if (dcToRemainingPeers.containsKey(datacenter))
                     dcToRemainingPeers.get(datacenter).countDown();
+            }
+            return null;
+        };
+        sendPingMessages(peers, LatencyMeasurementType.IGNORE, handleAck);
+    }
+
+    /**
+     * Sends a "connection warmup" message to each peer in the collection, on every {@link ConnectionType}
+     * used for internode messaging (that is not gossip).
+     */
+    private void sendPingMessages(Set<InetAddressAndPort> peers, LatencyMeasurementType latencyMeasurementTypeForSnitch,
+                                  Function<Message, Void> response)
+    {
+        RequestCallback responseHandler = new RequestCallback()
+        {
+            @Override
+            public LatencyMeasurementType latencyMeasurementType()
+            {
+                return latencyMeasurementTypeForSnitch;
+            }
+
+            @Override
+            public void onResponse(Message msg)
+            {
+                response.apply(msg);
             }
         };
 

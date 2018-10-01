@@ -1785,7 +1785,9 @@ public class StorageProxy implements StorageProxyMBean
                     handler.onFailure(FBUtilities.getBroadcastAddressAndPort(), RequestFailureReason.UNKNOWN);
                 }
 
-                MessagingService.instance().latencySubscribers.add(FBUtilities.getBroadcastAddressAndPort(), MonotonicClock.approxTime.now() - approxCreationTimeNanos, NANOSECONDS);
+                MessagingService.instance().latencySubscribers.add(FBUtilities.getBroadcastAddressAndPort(),
+                                                                   MonotonicClock.approxTime.now() - approxCreationTimeNanos,
+                                                                   NANOSECONDS, LatencyMeasurementType.READ);
             }
             catch (Throwable t)
             {

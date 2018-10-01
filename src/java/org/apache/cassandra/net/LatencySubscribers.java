@@ -32,7 +32,7 @@ public class LatencySubscribers
 {
     public interface Subscriber
     {
-        void receiveTiming(InetAddressAndPort address, long latency, TimeUnit unit);
+        void receiveTiming(InetAddressAndPort address, long latency, TimeUnit unit, LatencyMeasurementType latencyMeasurementType);
     }
 
     private volatile Subscriber subscribers;
@@ -43,9 +43,9 @@ public class LatencySubscribers
     {
         if (a == null) return b;
         if (b == null) return a;
-        return (address, latency, unit) -> {
-            a.receiveTiming(address, latency, unit);
-            b.receiveTiming(address, latency, unit);
+        return (address, latency, unit, type) -> {
+            a.receiveTiming(address, latency, unit, type);
+            b.receiveTiming(address, latency, unit, type);
         };
     }
 
@@ -54,11 +54,11 @@ public class LatencySubscribers
         subscribersUpdater.accumulateAndGet(this, subscriber, LatencySubscribers::merge);
     }
 
-    public void add(InetAddressAndPort address, long latency, TimeUnit unit)
+    public void add(InetAddressAndPort address, long latency, TimeUnit unit, LatencyMeasurementType type)
     {
         Subscriber subscribers = this.subscribers;
         if (subscribers != null)
-            subscribers.receiveTiming(address, latency, unit);
+            subscribers.receiveTiming(address, latency, unit, type);
     }
 
     /**
@@ -69,7 +69,6 @@ public class LatencySubscribers
      */
     public void maybeAdd(RequestCallback cb, InetAddressAndPort address, long latency, TimeUnit unit)
     {
-        if (cb.trackLatencyForSnitch())
-            add(address, latency, unit);
+        add(address, latency, unit, cb.latencyMeasurementType());
     }
 }

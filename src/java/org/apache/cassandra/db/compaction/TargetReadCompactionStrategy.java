@@ -22,11 +22,11 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.SortedSet;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
 
@@ -38,13 +38,17 @@ import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
+import org.apache.cassandra.db.lifecycle.SSTableIntervalTree;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.io.sstable.SSTable;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.schema.CompactionParams;
 import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.utils.Interval;
 import org.apache.cassandra.utils.Pair;
 
 import static com.google.common.collect.Iterables.filter;
@@ -70,7 +74,7 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         this.targetSSTableSize = targetReadOptions.targetSSTableSize;
     }
 
-    private List<SSTableReader> findSmallSSTables(Iterable<SSTableReader> candidates)
+    private List<SSTableReader> findNewlyFlushedSSTables(Iterable<SSTableReader> candidates)
     {
         // make local copies so they can't be changed out from under us mid-method
         int minThreshold = cfs.getMinimumCompactionThreshold();
@@ -83,20 +87,25 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
            range, which increases by one each time
          */
         Set<SSTableReader> sizeCandidates = Sets.newHashSet(candidates);
-        List<SSTableReader> tooSmall = sizeCandidates.stream()
-                                                     .filter(s -> s.onDiskLength() < targetSSTableSize)
-                                                     .sorted(SSTableReader.sstableComparator)
-                                                     .collect(Collectors.toList());
-
-        if (tooSmall.size() >= minThreshold)
-            return tooSmall.stream().limit(maxThreshold).collect(Collectors.toList());
-
 
         if (sizeCandidates.size() > targetReadOptions.maxSSTableCount)
         {
-            long totalSize = sizeCandidates.stream().mapToLong(SSTableReader::onDiskLength).sum();
+            long totalSize = sizeCandidates.stream().mapToLong(SSTableReader::bytesOnDisk).sum();
             targetSSTableSize = (totalSize / targetReadOptions.maxSSTableCount);
         }
+
+        List<SSTableReader> tooSmall = sizeCandidates.stream()
+                                                     .filter(s -> s.getSSTableLevel() == 0)
+                                                     //.filter(s -> s.onDiskLength() < targetSSTableSize)
+                                                     .sorted(SSTableReader.sstableComparator)
+                                                     .collect(Collectors.toList());
+
+        long size = tooSmall.stream().mapToLong(SSTable::bytesOnDisk).sum();
+
+        boolean sizeEligible = (size > targetSSTableSize) || tooSmall.size() >= maxThreshold;
+
+        if (tooSmall.size() >= minThreshold && sizeEligible)
+            return tooSmall.stream().limit(maxThreshold).collect(Collectors.toList());
 
         return Collections.emptyList();
     }
@@ -105,63 +114,61 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
     {
         int maxThreshold = cfs.getMaximumCompactionThreshold();
 
-        Set<SSTableReader> recentlyWritten = new TreeSet<>(SSTableReader.generationReverseComparator);
-        Set<SSTableReader> overlapTargets = new HashSet<>();
+        Set<SSTableReader> overlapTargets = new TreeSet<>(SSTableReader.sstableComparator);
         for (SSTableReader sstable : candidates)
         {
             if (sstable.getSSTableLevel() > 0)
                 overlapTargets.add(sstable);
-            else
-                recentlyWritten.add(sstable);
         }
 
-        if (recentlyWritten.size() == 0)
-            recentlyWritten.addAll(overlapTargets);
+        SSTableIntervalTree tree = SSTableIntervalTree.build(overlapTargets);
 
-        ownedRanges = new ArrayList<>(StorageService.instance.getLocalRanges(cfs.keyspace.getName()));
+        Map<Set<SSTableReader>, Long> targets = new HashMap<>();
 
-        List<DecoratedKey> keys = new ArrayList<>();
-        int targetKeys = 100;
-
-        for (int i = 0; i < 100 && keys.size() < targetKeys; i++)
+        for (SSTableReader sstable : overlapTargets)
         {
-            targetRange = (targetRange + 1) % ownedRanges.size();
-            for (SSTableReader sstable : recentlyWritten)
-                Iterables.addAll(keys, sstable.getKeySamples(ownedRanges.get(targetRange % ownedRanges.size())));
-        }
-
-        List<Set<SSTableReader>> overlaps = new ArrayList<>();
-
-        Set<SSTableReader> overlapping = new HashSet<>();
-        for (DecoratedKey key : keys)
-        {
-            overlapping.clear();
-            for (SSTableReader sstable : overlapTargets)
+            Interval<PartitionPosition, SSTableReader> interval = Interval.create(sstable.first, sstable.last, sstable);
+            Set<SSTableReader> overlapping = ImmutableSet.copyOf(tree.search(interval));
+            if (overlapping.size() > targetReadOptions.targetOverlap && !targets.containsKey(overlapping))
             {
-                if (sstable.getPosition(key, SSTableReader.Operator.EQ, false) != null)
-                {
-                    overlapping.add(sstable);
-                }
+                targets.putIfAbsent(overlapping, getBytesReclaimed(overlapping));
             }
-            if (overlapping.size() >= targetReadOptions.targetOverlap)
-                overlaps.add(ImmutableSet.copyOf(overlapping));
         }
 
         // Greedily take the worst offenders and compact them.
         Set<SSTableReader> result = new HashSet<>();
-        overlaps.sort(Comparator.comparing(Set::size));
-        for (Set<SSTableReader> sstables : overlaps)
+
+        List<Map.Entry<Set<SSTableReader>, Long>> sortedTargets = targets.entrySet()
+                                                                         .stream()
+                                                                         // reverse value order
+                                                                         .sorted((c1, c2) -> c2.getValue().compareTo(c1.getValue()))
+                                                                         .collect(Collectors.toList());
+
+
+        int countOver = 0;
+        int index = 0;
+        int targetIndex = 0;
+        for (Map.Entry<Set<SSTableReader>, Long> target : sortedTargets)
         {
-            for (SSTableReader sstable : sstables)
+            // TODO: why the arbitrary * 2 ... because otherwise small sstables never get compacted
+            if (target.getValue() > targetSSTableSize || target.getKey().size() >= targetReadOptions.targetOverlap * 2)
+            {
+                if (index == 0)
+                    index = targetIndex;
+                countOver += 1;
+            }
+            targetIndex += 1;
+        }
+
+
+        if (countOver > 0)
+        {
+            estimatedRemainingTasks = countOver;
+            for (SSTableReader sstable : sortedTargets.get(0).getKey())
             {
                 result.add(sstable);
                 if (result.size() >= maxThreshold)
                     break;
-            }
-            if (result.size() >= maxThreshold)
-            {
-                // TODO: fix estimatedRemainingTasks here
-                break;
             }
         }
 
@@ -217,11 +224,25 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
             return maxLevel + 1;
     }
 
+    private static long getBytesReclaimed(Iterable<SSTableReader> sstables)
+    {
+        long totalCount = 0;
+        long totalSize = 0;
+        for (SSTableReader sstable: sstables)
+        {
+            totalCount += SSTableReader.getApproximateKeyCount(Collections.singletonList((sstable)));
+            totalSize += sstable.bytesOnDisk();
+        }
+        long estimatedCombinedCount = SSTableReader.getApproximateKeyCount(sstables);
+        double ratio = (double) estimatedCombinedCount / (double) totalCount;
+        return (long) (ratio * totalSize);
+    }
+
     private Pair<List<SSTableReader>, Integer> getSSTablesForCompaction(int gcBefore)
     {
         Iterable<SSTableReader> candidates = filterSuspectSSTables(filter(cfs.getUncompactingSSTables(), sstables::contains));
 
-        List<SSTableReader> sstablesToCompact = findSmallSSTables(candidates);
+        List<SSTableReader> sstablesToCompact = findNewlyFlushedSSTables(candidates);
         if (!sstablesToCompact.isEmpty())
             return Pair.create(sstablesToCompact, 1);
 
@@ -242,14 +263,32 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
             Pair<List<SSTableReader>, Integer> compactionTarget = getSSTablesForCompaction(gcBefore);
             List<SSTableReader> sstablesToCompact = compactionTarget.left;
             int level = compactionTarget.right;
+            long targetSize = targetSSTableSize;
 
             if (sstablesToCompact.isEmpty())
                 return null;
 
+            // This can only happen from small sstables
+            if (level == 1) {
+                long totalCount = 0;
+                long totalSize = 0;
+                for (SSTableReader sstable: sstablesToCompact)
+                {
+                    totalCount += SSTableReader.getApproximateKeyCount(Collections.singletonList((sstable)));
+                    totalSize += sstable.bytesOnDisk();
+                }
+                long estimatedCombinedCount = SSTableReader.getApproximateKeyCount(sstablesToCompact);
+
+                double ratio = (double) estimatedCombinedCount / (double) totalCount;
+                targetSize = Math.max(4096, Math.round(((totalSize * ratio) / cfs.getMaximumCompactionThreshold())));
+
+                logger.debug("Level zero compaction yielding ratio of {} and size {} bytes", ratio, targetSize);
+            }
+
             LifecycleTransaction transaction = cfs.getTracker().tryModify(sstablesToCompact, OperationType.COMPACTION);
             if (transaction != null)
                 return new LeveledCompactionTask(cfs, transaction, level,
-                                                 gcBefore, targetSSTableSize, false);
+                                                 gcBefore, targetSize, false);
         }
     }
 

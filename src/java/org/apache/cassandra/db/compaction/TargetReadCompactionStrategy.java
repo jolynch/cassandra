@@ -60,9 +60,6 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
     protected TargetReadCompactionStrategyOptions targetReadOptions;
     protected volatile int estimatedRemainingTasks;
     protected long targetSSTableSize;
-    protected int targetRange = 0;
-    protected List<Range<Token>> ownedRanges;
-
 
     private final Set<SSTableReader> sstables = new HashSet<>();
 
@@ -80,34 +77,51 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         int minThreshold = cfs.getMinimumCompactionThreshold();
         int maxThreshold = cfs.getMaximumCompactionThreshold();
 
-        /*
-        1. If we have minThreshold sstables under the target size, always compact them into the overlapping set
-        2. Otherwise recalculate targetSize based on max sstables and try to keep us under the count of sstables
-        3. If nothing at this point we take a keysample and chose the sstables with the most overlaps to the target
-           range, which increases by one each time
-         */
+        Set<SSTableReader> flushCandidates = Sets.newHashSet(candidates);
+        List<SSTableReader> recentlyFlushed = flushCandidates.stream()
+                                                             .filter(s -> s.getSSTableLevel() == 0)
+                                                             .sorted(SSTableReader.sizeComparator)
+                                                             .collect(Collectors.toList());
+
+        long size = recentlyFlushed.stream().mapToLong(SSTable::bytesOnDisk).sum();
+
+        // Consider flushed sstables eligible for entry into the "levels" if we have enough data to write out a single
+        // targetSSTableSize sstable, or we have enough sstables (assuming they all span the whole token range) such
+        // that we may exceed the maxOverlap
+        boolean sizeEligible = (size > targetSSTableSize) ||
+                               ((recentlyFlushed.size() + targetReadOptions.targetOverlap) >= targetReadOptions.maxOverlap);
+
+        if (recentlyFlushed.size() >= minThreshold && sizeEligible)
+            return recentlyFlushed.stream().limit(maxThreshold).collect(Collectors.toList());
+
+        return Collections.emptyList();
+    }
+
+    private List<SSTableReader> findSmallSSTables(Iterable<SSTableReader> candidates)
+    {
+        int maxThreshold = cfs.getMaximumCompactionThreshold();
         Set<SSTableReader> sizeCandidates = Sets.newHashSet(candidates);
 
         if (sizeCandidates.size() > targetReadOptions.maxSSTableCount)
         {
-            long totalSize = sizeCandidates.stream().mapToLong(SSTableReader::bytesOnDisk).sum();
-            targetSSTableSize = (totalSize / targetReadOptions.maxSSTableCount);
+            long totalSize = sizeCandidates.stream().mapToLong(SSTableReader::onDiskLength).sum();
+            targetSSTableSize = Math.max(targetReadOptions.targetSSTableSize,
+                                         totalSize / targetReadOptions.maxSSTableCount);
         }
 
-        List<SSTableReader> tooSmall = sizeCandidates.stream()
-                                                     .filter(s -> s.getSSTableLevel() == 0)
-                                                     //.filter(s -> s.onDiskLength() < targetSSTableSize)
-                                                     .sorted(SSTableReader.sstableComparator)
-                                                     .collect(Collectors.toList());
+        Map<Integer, List<SSTableReader>> tooSmall = sizeCandidates.stream()
+                                                                   .filter(s -> s.getSSTableLevel() > 0)
+                                                                   .filter(s -> s.onDiskLength() < targetSSTableSize)
+                                                                   .sorted(SSTableReader.sizeComparator)
+                                                                   .collect(Collectors.groupingBy(SSTableReader::getSSTableLevel));
+        List<SSTableReader> result = Collections.emptyList();
+        for (Map.Entry<Integer, List<SSTableReader>> entry: tooSmall.entrySet())
+        {
+            if (entry.getValue().size() > result.size())
+                result = entry.getValue();
+        }
 
-        long size = tooSmall.stream().mapToLong(SSTable::bytesOnDisk).sum();
-
-        boolean sizeEligible = (size > targetSSTableSize) || tooSmall.size() >= maxThreshold;
-
-        if (tooSmall.size() >= minThreshold && sizeEligible)
-            return tooSmall.stream().limit(maxThreshold).collect(Collectors.toList());
-
-        return Collections.emptyList();
+        return result.stream().limit(maxThreshold).collect(Collectors.toList());
     }
 
     private List<SSTableReader> findOverlappingSSTables(Iterable<SSTableReader> candidates)
@@ -122,6 +136,7 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         }
 
         SSTableIntervalTree tree = SSTableIntervalTree.build(overlapTargets);
+
 
         Map<Set<SSTableReader>, Long> targets = new HashMap<>();
 
@@ -150,8 +165,7 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         int targetIndex = 0;
         for (Map.Entry<Set<SSTableReader>, Long> target : sortedTargets)
         {
-            // TODO: why the arbitrary * 2 ... because otherwise small sstables never get compacted
-            if (target.getValue() > targetSSTableSize || target.getKey().size() >= targetReadOptions.targetOverlap * 2)
+            if (target.getValue() > targetSSTableSize || target.getKey().size() >= targetReadOptions.maxOverlap)
             {
                 if (index == 0)
                     index = targetIndex;
@@ -226,12 +240,37 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
 
     private static long getBytesReclaimed(Iterable<SSTableReader> sstables)
     {
-        long totalCount = 0;
+        PartitionPosition min = null;
+        PartitionPosition max = null;
         long totalSize = 0;
+
+        /*
+        for (SSTableReader sstable : sstables)
+        {
+            if (min == null || sstable.first.compareTo(min) < 0)
+                min = sstable.first;
+            if (max == null || sstable.last.compareTo(max) > 0)
+                max = sstable.last;
+            Range<PartitionPosition> r = new Range<PartitionPosition>(sstable.first, sstable.last);
+
+            /**
+             *
+             * [     ]
+             *    [     ]
+             *    [  ]
+             *      [   ]
+             /
+            r.left.getToken().sie(r.right.getToken())
+            totalSize += sstable.onDiskLength();
+        }
+        */
+
+
+        long totalCount = 0;
         for (SSTableReader sstable: sstables)
         {
+
             totalCount += SSTableReader.getApproximateKeyCount(Collections.singletonList((sstable)));
-            totalSize += sstable.bytesOnDisk();
         }
         long estimatedCombinedCount = SSTableReader.getApproximateKeyCount(sstables);
         double ratio = (double) estimatedCombinedCount / (double) totalCount;
@@ -245,6 +284,10 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         List<SSTableReader> sstablesToCompact = findNewlyFlushedSSTables(candidates);
         if (!sstablesToCompact.isEmpty())
             return Pair.create(sstablesToCompact, 1);
+
+        sstablesToCompact = findSmallSSTables(candidates);
+        if (!sstablesToCompact.isEmpty())
+            return Pair.create(sstablesToCompact, sstablesToCompact.get(0).getSSTableLevel());
 
         sstablesToCompact = findOverlappingSSTables(candidates);
         if (!sstablesToCompact.isEmpty())

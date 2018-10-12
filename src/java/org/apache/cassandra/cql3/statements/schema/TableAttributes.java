@@ -49,7 +49,9 @@ public final class TableAttributes extends PropertyDefinitions
             validBuilder.add(option.toString());
         validBuilder.add(ID);
         validKeywords = validBuilder.build();
-        obsoleteKeywords = ImmutableSet.of();
+        // Currently drivers may output these as part of a DESCRIBE
+        // See CASSANDRA-14822 and CASSANDRA-13910 for more context
+        obsoleteKeywords = ImmutableSet.of("dclocal_read_repair_chance", "read_repair_chance");
     }
 
     public void validate()

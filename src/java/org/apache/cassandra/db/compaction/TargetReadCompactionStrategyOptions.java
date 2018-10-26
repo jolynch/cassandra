@@ -23,9 +23,9 @@ import org.apache.cassandra.exceptions.ConfigurationException;
 
 public final class TargetReadCompactionStrategyOptions
 {
-    protected static final long DEFAULT_MIN_SSTABLE_SIZE = 50L * 1024L * 1024L;
-    protected static final long DEFAULT_TARGET_SSTABLE_SIZE = 1000L * 1024L * 1024L;
-    protected static final long DEFAULT_MAX_COUNT = 10000;
+    protected static final long DEFAULT_MIN_SSTABLE_SIZE = 50L;
+    protected static final long DEFAULT_TARGET_SSTABLE_SIZE = 1000L;
+    protected static final long DEFAULT_MAX_COUNT = 2000;
     protected static final long DEFAULT_TARGET_OVERLAP = 4;
     protected static final long DEFAULT_MAX_OVERLAP = 8;
 
@@ -43,8 +43,8 @@ public final class TargetReadCompactionStrategyOptions
 
     public TargetReadCompactionStrategyOptions(Map<String, String> options)
     {
-        minSSTableSize = parseLong(options, MIN_SSTABLE_SIZE_KEY, DEFAULT_MIN_SSTABLE_SIZE);
-        targetSSTableSize = parseLong(options, TARGET_SSTABLE_SIZE, DEFAULT_TARGET_SSTABLE_SIZE);
+        minSSTableSize = parseLong(options, MIN_SSTABLE_SIZE_KEY, DEFAULT_MIN_SSTABLE_SIZE) * 1024L * 1024L;
+        targetSSTableSize = parseLong(options, TARGET_SSTABLE_SIZE, DEFAULT_TARGET_SSTABLE_SIZE) * 1024L * 1024L;
         targetOverlap = parseLong(options, TARGET_OVERLAP, DEFAULT_TARGET_OVERLAP);
         maxSSTableCount = parseLong(options, SSTABLE_MAX_COUNT, DEFAULT_MAX_COUNT);
         maxOverlap = parseLong(options, MAX_OVERLAP, DEFAULT_MAX_OVERLAP);
@@ -74,7 +74,7 @@ public final class TargetReadCompactionStrategyOptions
 
     public static Map<String, String> validateOptions(Map<String, String> options, Map<String, String> uncheckedOptions) throws ConfigurationException
     {
-        long minSSTableSize = parseLong(options, MIN_SSTABLE_SIZE_KEY, DEFAULT_MIN_SSTABLE_SIZE);
+        long minSSTableSize = parseLong(options, MIN_SSTABLE_SIZE_KEY, DEFAULT_MIN_SSTABLE_SIZE) * 1024 * 1024;
         if (minSSTableSize < 0)
         {
             throw new ConfigurationException(String.format("%s must be non negative: %d", MIN_SSTABLE_SIZE_KEY, minSSTableSize));

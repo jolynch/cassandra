@@ -118,19 +118,22 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
     private List<SSTableReader> findOverlappingSSTables(Set<SSTableReader> compactionCandidates)
     {
         int maxThreshold = cfs.getMaximumCompactionThreshold();
+        // We never consider the freshly flushed sstables candidates for overlap compaction
+        // they _must_ go through the cleaning process in findNewlyFlushedSSTables first
+        Set<SSTableReader> overlapCandidates = compactionCandidates.stream()
+                                                                   .filter(s -> s.getSSTableLevel() > 0)
+                                                                   .collect(Collectors.toSet());
         Map<Set<SSTableReader>, Long> targets = new HashMap<>();
 
-        for (SSTableReader sstable : compactionCandidates)
+        for (SSTableReader sstable : overlapCandidates)
         {
             Collection<SSTableReader> overlappingLive = cfs.getOverlappingLiveSSTables(Collections.singleton(sstable));
-            Set<SSTableReader> overlapping = ImmutableSet.copyOf(Sets.intersection(ImmutableSet.copyOf(overlappingLive), compactionCandidates));
+            Set<SSTableReader> overlapping = ImmutableSet.copyOf(Sets.intersection(ImmutableSet.copyOf(overlappingLive), overlapCandidates));
             if (!targets.containsKey(overlapping) && overlapping.size() > targetReadOptions.targetOverlap)
             {
                 targets.put(overlapping, getBytesReclaimed(overlapping));
             }
         }
-
-        Set<SSTableReader> result = new HashSet<>();
 
         List<Map.Entry<Set<SSTableReader>, Long>> sortedTargets = targets.entrySet()
                                                                          .stream()
@@ -138,6 +141,7 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
                                                                          .sorted((c1, c2) -> c2.getValue().compareTo(c1.getValue()))
                                                                          .collect(Collectors.toList());
 
+        Set<SSTableReader> result = new HashSet<>();
         int countOver = 0;
         int index = 0;
         int targetIndex = 0;
@@ -155,7 +159,6 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
 
         if (countOver > 0)
         {
-            logger.info("Choosing sstables {} for compaction, will get {} bytes back", sortedTargets.get(index).getKey(), sortedTargets.get(index).getValue());
             estimatedRemainingTasks = countOver;
             for (SSTableReader sstable : sortedTargets.get(index).getKey())
             {
@@ -166,7 +169,12 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         }
 
         if (result.size() > 0)
+        {
+            logger.debug("Choosing {} sstables of tiers {} for compaction, will get {} bytes back",
+                         result.size(), result.stream().mapToInt(SSTableReader::getSSTableLevel).toArray(),
+                         sortedTargets.get(index).getValue());
             return new ArrayList<>(result);
+        }
 
         return Collections.emptyList();
     }
@@ -190,10 +198,17 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
 
     private static int getLevel(Iterable<SSTableReader> sstables)
     {
-        int maxGen = 0;
+        int maxLevel = 0;
+        int count = 0;
         for (SSTableReader sstable : sstables)
-            maxGen = Math.max(maxGen, sstable.descriptor.generation);
-        return maxGen;
+        {
+            maxLevel = Math.max(maxLevel, sstable.getSSTableLevel());
+            count++;
+        }
+        if (count == 1)
+            return maxLevel;
+        else
+            return maxLevel + 1;
     }
 
     private static long getBytesReclaimed(Set<SSTableReader> sstables)
@@ -244,7 +259,7 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
             if (sstablesToCompact.isEmpty())
                 return null;
 
-            // This can only happen from small sstables
+            // This can only happen from newly flushed sstables
             if (level == 1) {
                 long totalCount = 0;
                 long totalSize = 0;
@@ -258,7 +273,8 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
                 double ratio = (double) estimatedCombinedCount / (double) totalCount;
                 targetSize = Math.max(4096, Math.round(((totalSize * ratio) / cfs.getMaximumCompactionThreshold())));
 
-                logger.debug("Level zero compaction yielding ratio of {} and size {} bytes", ratio, targetSize);
+                logger.debug("Level zero compaction yielding {} sstables of size {}mb. Achieving compaction ratio of: {}",
+                             totalSize / targetSize, targetSize / (1024 * 1024), ratio);
             }
 
             LifecycleTransaction transaction = cfs.getTracker().tryModify(sstablesToCompact, OperationType.COMPACTION);

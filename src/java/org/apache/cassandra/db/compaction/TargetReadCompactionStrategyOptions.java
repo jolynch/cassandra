@@ -24,7 +24,7 @@ import org.apache.cassandra.exceptions.ConfigurationException;
 public final class TargetReadCompactionStrategyOptions
 {
     protected static final long DEFAULT_MIN_SSTABLE_SIZE = 50L;
-    protected static final long DEFAULT_TARGET_SSTABLE_SIZE = 1000L;
+    protected static final long DEFAULT_TARGET_SSTABLE_SIZE = 512L;
     protected static final long DEFAULT_MAX_COUNT = 2000;
     protected static final long DEFAULT_TARGET_OVERLAP = 4;
     protected static final long DEFAULT_MAX_OVERLAP = 8;
@@ -52,8 +52,8 @@ public final class TargetReadCompactionStrategyOptions
 
     public TargetReadCompactionStrategyOptions()
     {
-        minSSTableSize = DEFAULT_MIN_SSTABLE_SIZE;
-        targetSSTableSize = DEFAULT_TARGET_SSTABLE_SIZE;
+        minSSTableSize = DEFAULT_MIN_SSTABLE_SIZE * 1024L * 1024L;
+        targetSSTableSize = DEFAULT_TARGET_SSTABLE_SIZE * 1024L * 1024L;
         maxSSTableCount = DEFAULT_MAX_COUNT;
         targetOverlap = DEFAULT_TARGET_OVERLAP;
         maxOverlap = DEFAULT_MAX_OVERLAP;

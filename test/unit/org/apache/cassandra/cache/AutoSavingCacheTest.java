@@ -19,9 +19,12 @@ package org.apache.cassandra.cache;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.marshal.AsciiType;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
+
+import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -37,6 +40,10 @@ public class AutoSavingCacheTest
 {
     private static final String KEYSPACE1 = "AutoSavingCacheTest1";
     private static final String CF_STANDARD1 = "Standard1";
+    private static final String CF_STANDARD2 = "Standard2";
+
+    private static ColumnFamilyStore cfs1;
+    private static ColumnFamilyStore cfs2;
 
     @BeforeClass
     public static void defineSchema() throws ConfigurationException
@@ -47,39 +54,73 @@ public class AutoSavingCacheTest
                                     CFMetaData.Builder.create(KEYSPACE1, CF_STANDARD1)
                                                       .addPartitionKey("pKey", AsciiType.instance)
                                                       .addRegularColumn("col1", AsciiType.instance)
+                                                      .build(),
+                                    CFMetaData.Builder.create(KEYSPACE1, CF_STANDARD2)
+                                                      .addPartitionKey("pKey", AsciiType.instance)
+                                                      .addRegularColumn("col1", AsciiType.instance)
                                                       .build());
+
+        cfs1 = Keyspace.open(KEYSPACE1).getColumnFamilyStore(CF_STANDARD1);
+        cfs2 = Keyspace.open(KEYSPACE1).getColumnFamilyStore(CF_STANDARD1);
+        cfs1.disableAutoCompaction();
+        cfs2.disableAutoCompaction();
+    }
+
+    @AfterClass
+    public static void cleanup()
+    {
+        cfs1.disableAutoCompaction();
+        cfs2.disableAutoCompaction();
     }
 
     @Test
     public void testSerializeAndLoadKeyCache() throws Exception
     {
-        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE1).getColumnFamilyStore(CF_STANDARD1);
-        for (int i = 0; i < 2; i++)
+        doTestSerializeAndLoadKeyCache(2, cfs1);
+    }
+
+    @Test
+    public void testSerializeAndLoadKeyCacheMultipleCfsAndSSTables() throws Exception
+    {
+        doTestSerializeAndLoadKeyCache(12, cfs1, cfs2);
+    }
+
+    private static void doTestSerializeAndLoadKeyCache(int numSSTables, ColumnFamilyStore ... columnFamilyStores) throws Exception
+    {
+        for (ColumnFamilyStore cfs: columnFamilyStores)
         {
-            ColumnDefinition colDef = ColumnDefinition.regularDef(cfs.metadata, ByteBufferUtil.bytes("col1"), AsciiType.instance);
-            RowUpdateBuilder rowBuilder = new RowUpdateBuilder(cfs.metadata, System.currentTimeMillis(), "key1");
-            rowBuilder.add(colDef, "val1");
-            rowBuilder.build().apply();
-            cfs.forceBlockingFlush();
+            cfs.truncateBlocking();
+            for (int i = 0; i < numSSTables; i++)
+            {
+                ColumnDefinition colDef = ColumnDefinition.regularDef(cfs.metadata, ByteBufferUtil.bytes("col1"), AsciiType.instance);
+                RowUpdateBuilder rowBuilder = new RowUpdateBuilder(cfs.metadata, System.currentTimeMillis(), "key1");
+                rowBuilder.add(colDef, "val1");
+                rowBuilder.build().apply();
+                cfs.forceBlockingFlush();
+            }
+
+            Assert.assertEquals(numSSTables, cfs.getLiveSSTables().size());
+
+            // preheat key cache
+            for (SSTableReader sstable : cfs.getLiveSSTables())
+                sstable.getPosition(Util.dk("key1"), SSTableReader.Operator.EQ);
         }
-
-        Assert.assertEquals(2, cfs.getLiveSSTables().size());
-
-        // preheat key cache
-        for (SSTableReader sstable : cfs.getLiveSSTables())
-            sstable.getPosition(Util.dk("key1"), SSTableReader.Operator.EQ);
 
         AutoSavingCache<KeyCacheKey, RowIndexEntry> keyCache = CacheService.instance.keyCache;
 
         // serialize to file
+        int expected = keyCache.size();
         keyCache.submitWrite(keyCache.size()).get();
         keyCache.clear();
 
         Assert.assertEquals(0, keyCache.size());
 
         // then load saved
-        keyCache.loadSavedAsync().get();
-        for (SSTableReader sstable : cfs.getLiveSSTables())
-            Assert.assertNotNull(keyCache.get(new KeyCacheKey(cfs.metadata.ksAndCFName, sstable.descriptor, ByteBufferUtil.bytes("key1"))));
+        int numLoaded = keyCache.loadSavedAsync().get();
+        for (ColumnFamilyStore cfs : columnFamilyStores)
+            for (SSTableReader sstable : cfs.getLiveSSTables())
+                Assert.assertNotNull(keyCache.get(new KeyCacheKey(cfs.metadata.ksAndCFName, sstable.descriptor, ByteBufferUtil.bytes("key1"))));
+
+        Assert.assertEquals(expected, numLoaded);
     }
 }

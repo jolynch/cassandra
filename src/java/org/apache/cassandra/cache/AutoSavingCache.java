@@ -257,6 +257,7 @@ public class AutoSavingCache<K extends CacheKey, V> extends InstrumentingCache<K
             finally
             {
                 FileUtils.closeQuietly(in);
+                cacheLoader.cleanupAfterDeserialize();
             }
         }
         if (logger.isTraceEnabled())
@@ -428,5 +429,13 @@ public class AutoSavingCache<K extends CacheKey, V> extends InstrumentingCache<K
         void serialize(K key, DataOutputPlus out, ColumnFamilyStore cfs) throws IOException;
 
         Future<Pair<K, V>> deserialize(DataInputPlus in, ColumnFamilyStore cfs) throws IOException;
+
+        /**
+         * Cleanup any cached state that was created during calls to {@link #deserialize(DataInputPlus, ColumnFamilyStore)}
+         * Note that only serializers that create state for performance reasons need to implement this.
+         *
+         * This method is called once at the end of many deserializations.
+         */
+        default void cleanupAfterDeserialize() { }
     }
 }

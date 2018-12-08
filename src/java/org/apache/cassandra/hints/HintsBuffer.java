@@ -54,7 +54,7 @@ final class HintsBuffer
     static final int ENTRY_OVERHEAD_SIZE = 12;
     static final int CLOSED = -1;
 
-    private final ByteBuffer slab; // the underlying backing ByteBuffer for all the serialized hints
+    final ByteBuffer slab; // the underlying backing ByteBuffer for all the serialized hints
     private final AtomicInteger position; // the position in the slab that we currently allocate from
 
     private final ConcurrentMap<UUID, Queue<Integer>> offsets;

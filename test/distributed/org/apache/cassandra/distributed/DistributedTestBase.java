@@ -19,9 +19,9 @@
 package org.apache.cassandra.distributed;
 
 import java.util.Arrays;
-
 import org.junit.Assert;
 import org.junit.BeforeClass;
+
 
 public class DistributedTestBase
 {

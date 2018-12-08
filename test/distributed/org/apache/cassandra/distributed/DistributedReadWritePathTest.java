@@ -171,5 +171,6 @@ public class DistributedReadWritePathTest extends DistributedTestBase
             Assert.assertTrue(thrown.getMessage().contains("Exception occurred on the node"));
             Assert.assertTrue(thrown.getCause().getMessage().contains("Unknown column v2 during deserialization"));
         }
+        Thread.sleep(100000);
     }
 }

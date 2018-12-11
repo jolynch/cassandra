@@ -65,8 +65,8 @@ public class InstanceClassLoader extends URLClassLoader
         // Do not share:
         //  * yaml, which  is a rare exception because it does mess with loading org.cassandra...Config class instances
         //  * most of the rest of Cassandra classes (unless they were explicitly shared) g
-        if (//name.startsWith("org.slf4j") ||
-            //    name.startsWith("ch.qos.logback") ||
+        if (name.startsWith("org.slf4j") ||
+                name.startsWith("ch.qos.logback") ||
                 name.startsWith("org.yaml") ||
                 (name.startsWith("org.apache.cassandra") && !isCommonClassName.test(name)))
             return loadClassInternal(name);

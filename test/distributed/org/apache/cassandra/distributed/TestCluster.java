@@ -53,7 +53,6 @@ import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.schema.SchemaEvent;
 import org.apache.cassandra.utils.FBUtilities;
-import org.apache.cassandra.utils.MD5Digest;
 import org.apache.cassandra.utils.concurrent.SimpleCondition;
 
 /**

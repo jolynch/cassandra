@@ -18,15 +18,15 @@
 
 package org.apache.cassandra.distributed;
 
-import com.google.common.base.Predicate;
-import org.apache.cassandra.locator.InetAddressAndPort;
-import org.apache.cassandra.utils.Pair;
-
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.function.IntFunction;
+import java.util.function.Predicate;
+
+import org.apache.cassandra.locator.InetAddressAndPort;
+import org.apache.cassandra.utils.Pair;
 
 public class InstanceClassLoader extends URLClassLoader
 {

@@ -62,7 +62,6 @@ import org.apache.cassandra.io.util.DataOutputBuffer;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.locator.SimpleSeedProvider;
 import org.apache.cassandra.locator.SimpleSnitch;
-import org.apache.cassandra.metrics.CassandraMetricsRegistry;
 import org.apache.cassandra.net.IMessageSink;
 import org.apache.cassandra.net.MessageDeliveryTask;
 import org.apache.cassandra.net.MessageIn;

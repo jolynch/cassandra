@@ -21,11 +21,16 @@ package org.apache.cassandra.distributed;
 import java.lang.ref.Reference;
 import java.lang.reflect.Array;
 import java.lang.reflect.Field;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
 
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.BeforeClass;
+
+import com.sun.jna.Native;
 
 public class DistributedTestBase
 {
@@ -78,6 +83,26 @@ public class DistributedTestBase
                     ThreadLocal threadLocal = (ThreadLocal)referentField.get(entry);
                     threadLocal.remove();
                 }
+            }
+
+            // TODO: Find a better way to not leak the class loaders via the options
+            // static field in Native ... This is royally bad.
+            Field libraries = Native.class.getDeclaredField("libraries");
+            libraries.setAccessible(true);
+            Field options = Native.class.getDeclaredField("options");
+            options.setAccessible(true);
+            Map<Class, ?> foo = (Map<Class, ?>) options.get(null);
+            List<Class> toRemove = new ArrayList<>();
+            for (Class klass : foo.keySet())
+            {
+                Native.unregister(klass);
+                if (klass.getName().startsWith("org.apache.cassandra"))
+                    toRemove.add(klass);
+            }
+            synchronized (libraries.get(null))
+            {
+                for (Class klass : toRemove)
+                    foo.remove(klass);
             }
         } catch(Exception e) {
             throw new IllegalStateException(e);

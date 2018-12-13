@@ -1374,6 +1374,13 @@
         <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
         <jvmarg value="-Dcassandra.config.loader=org.apache.cassandra.OffsetAwareConfigurationLoader"/>
         <jvmarg value="-Dcassandra.skip_sync=true" />
+        <!-- When we do classloader manipulation SoftReferences can cause memory leaks
+             that can OOM our test runs. This setting informs our GC algorithm to clean
+             up SoftReferences more aggressively rather than waiting.
+             See CASSANDRA-14922 for more details.
+        -->
+        <jvmarg value="-XX:MaxMetaspaceSize=256M" />
+        <jvmarg value="-XX:SoftRefLRUPolicyMSPerMB=0" />
       </testmacrohelper>
     </sequential>
   </macrodef>

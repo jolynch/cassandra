@@ -68,6 +68,7 @@ import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.net.async.MessageInHandler;
+import org.apache.cassandra.net.async.NettyFactory;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.schema.SchemaConstants;
 import org.apache.cassandra.service.ActiveRepairService;
@@ -233,6 +234,9 @@ public class Instance extends InvokableInstance
             DatabaseDescriptor.createAllDirectories();
             Keyspace.setInitialized();
             SystemKeyspace.persistLocalMetadata();
+            // Even though we don't use MessagingService, access it here to
+            // force the Netty static instance to load static event loop state
+            NettyFactory.instance.getClass();
         }).accept(config);
     }
 

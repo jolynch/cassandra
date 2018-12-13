@@ -55,7 +55,8 @@ public class DistributedTestBase
     {
         // ThreadLocals appear to leak our class loaders, see
         // https://stackoverflow.com/questions/3869026/how-to-clean-up-threadlocals
-        try {
+        try
+        {
             // Get a reference to the thread locals table of the current thread
             Thread thread = Thread.currentThread();
             Field threadLocalsField = Thread.class.getDeclaredField("threadLocals");
@@ -74,37 +75,22 @@ public class DistributedTestBase
             Field referentField = Reference.class.getDeclaredField("referent");
             referentField.setAccessible(true);
 
-            for (int i = 0; i < Array.getLength(table); i++) {
+            for (int i = 0; i < Array.getLength(table); i++)
+            {
                 // Each entry in the table array of ThreadLocalMap is an Entry object
                 // representing the thread local reference and its value
                 Object entry = Array.get(table, i);
-                if (entry != null) {
+                if (entry != null)
+                {
                     // Get a reference to the thread local object and remove it from the table
                     ThreadLocal threadLocal = (ThreadLocal)referentField.get(entry);
-                    threadLocal.remove();
+                    if (threadLocal != null)
+                        threadLocal.remove();
                 }
             }
-
-            // TODO: Find a better way to not leak the class loaders via the options
-            // static field in Native ... This is royally bad.
-            Field libraries = Native.class.getDeclaredField("libraries");
-            libraries.setAccessible(true);
-            Field options = Native.class.getDeclaredField("options");
-            options.setAccessible(true);
-            Map<Class, ?> foo = (Map<Class, ?>) options.get(null);
-            List<Class> toRemove = new ArrayList<>();
-            for (Class klass : foo.keySet())
-            {
-                Native.unregister(klass);
-                if (klass.getName().startsWith("org.apache.cassandra"))
-                    toRemove.add(klass);
-            }
-            synchronized (libraries.get(null))
-            {
-                for (Class klass : toRemove)
-                    foo.remove(klass);
-            }
-        } catch(Exception e) {
+        }
+        catch (Exception e)
+        {
             throw new IllegalStateException(e);
         }
     }

@@ -20,7 +20,10 @@ package org.apache.cassandra.distributed;
 
 import java.io.File;
 import java.io.IOException;
+import java.lang.ref.ReferenceQueue;
+import java.lang.reflect.Method;
 import java.net.URLClassLoader;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -43,6 +46,8 @@ import java.util.stream.Collectors;
 
 import com.google.common.collect.Sets;
 
+import io.netty.util.concurrent.FastThreadLocalThread;
+import io.netty.util.internal.InternalThreadLocalMap;
 import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.ConsistencyLevel;
@@ -54,6 +59,7 @@ import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.schema.SchemaEvent;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.concurrent.SimpleCondition;
+import sun.nio.ch.DirectBuffer;
 
 /**
  * TestCluster creates, initializes and manages Cassandra instances ({@link Instance}.
@@ -291,6 +297,17 @@ public class TestCluster implements AutoCloseable
         exec.awaitTermination(10, TimeUnit.SECONDS);
 
         //withThreadLeakCheck(futures);
+        Set<Thread> threadSet = Thread.getAllStackTraces().keySet();
+        for (Thread thread : threadSet)
+        {
+            if (thread instanceof FastThreadLocalThread)
+                ((FastThreadLocalThread)thread).setThreadLocalMap(null);
+        }
+
+        InternalThreadLocalMap.remove();
+        InternalThreadLocalMap.destroy();
+
+        System.gc();
     }
 
     // We do not want this check to run every time until we fix problems with tread stops

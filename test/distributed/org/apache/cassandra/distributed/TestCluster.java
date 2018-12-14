@@ -46,6 +46,7 @@ import java.util.stream.Collectors;
 
 import com.google.common.collect.Sets;
 
+import io.netty.util.concurrent.FastThreadLocal;
 import io.netty.util.concurrent.FastThreadLocalThread;
 import io.netty.util.internal.InternalThreadLocalMap;
 import org.apache.cassandra.concurrent.NamedThreadFactory;
@@ -307,6 +308,8 @@ public class TestCluster implements AutoCloseable
         InternalThreadLocalMap.remove();
         InternalThreadLocalMap.destroy();
 
+        FastThreadLocal.removeAll();
+        FastThreadLocal.destroy();
         System.gc();
     }
 

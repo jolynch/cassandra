@@ -1947,6 +1947,16 @@ public class DatabaseDescriptor
         }
     }
 
+    public static int getRepairSessionMaxTreeDepth()
+    {
+        return conf.repair_session_max_tree_depth;
+    }
+
+    public static void setRepairSessionMaxTreeDepth(int depth)
+    {
+        conf.repair_session_max_tree_depth = depth;
+    }
+
     public static boolean getOutboundBindAny()
     {
         return Config.outboundBindAny || conf.listen_on_broadcast_address;

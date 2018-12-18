@@ -2266,6 +2266,16 @@ public class DatabaseDescriptor
         return conf.memtable_allocation_type;
     }
 
+    public static int getRepairSessionMaxTreeDepth()
+    {
+        return conf.repair_session_max_tree_depth;
+    }
+
+    public static void setRepairSessionMaxTreeDepth(int depth)
+    {
+        conf.repair_session_max_tree_depth = depth;
+    }
+
     public static Float getMemtableCleanupThreshold()
     {
         return conf.memtable_cleanup_threshold;

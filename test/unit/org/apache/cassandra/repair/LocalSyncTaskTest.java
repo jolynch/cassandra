@@ -38,8 +38,10 @@ import org.apache.cassandra.service.ActiveRepairService;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.MerkleTree;
 import org.apache.cassandra.utils.MerkleTrees;
+import org.apache.cassandra.utils.ObjectSizes;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 public class LocalSyncTaskTest extends SchemaLoader
 {
@@ -76,9 +78,47 @@ public class LocalSyncTaskTest extends SchemaLoader
         // note: we reuse the same endpoint which is bogus in theory but fine here
         TreeResponse r1 = new TreeResponse(ep1, tree1);
         TreeResponse r2 = new TreeResponse(ep2, tree2);
-        LocalSyncTask task = new LocalSyncTask(desc, r1, r2, ActiveRepairService.UNREPAIRED_SSTABLE);
+        TreeDifferenceTask differenceTask = new TreeDifferenceTask(r1, r2);
+        differenceTask.run();
+
+        LocalSyncTask task = new LocalSyncTask(desc, r1.endpoint, r2.endpoint,
+                                               differenceTask.get().ranges, ActiveRepairService.UNREPAIRED_SSTABLE);
         task.run();
 
+        assertEquals(0, task.get().numberOfDifferences);
+    }
+
+    /**
+     * Regression test for CASSANDRA-14096. We should not retain memory after running
+     */
+    @Test
+    public void testNoTreesRetainedAfterDifference() throws Throwable
+    {
+        final InetAddress ep1 = InetAddress.getByName("127.0.0.1");
+        final InetAddress ep2 = InetAddress.getByName("127.0.0.1");
+
+        Range<Token> range = new Range<>(partirioner.getMinimumToken(), partirioner.getRandomToken());
+        RepairJobDesc desc = new RepairJobDesc(UUID.randomUUID(), UUID.randomUUID(), KEYSPACE1, "Standard1", Arrays.asList(range));
+
+        MerkleTrees tree1 = createInitialTree(desc);
+        MerkleTrees tree2 = createInitialTree(desc);
+
+        // difference the trees
+        // note: we reuse the same endpoint which is bogus in theory but fine here
+        TreeResponse r1 = new TreeResponse(ep1, tree1);
+        TreeResponse r2 = new TreeResponse(ep2, tree2);
+        TreeDifferenceTask differenceTask = new TreeDifferenceTask(r1, r2);
+        long sizeOfDifferenceTask = ObjectSizes.measureDeep(differenceTask);
+
+        differenceTask.run();
+        LocalSyncTask task = new LocalSyncTask(desc, r1.endpoint, r2.endpoint,
+                                               differenceTask.get().ranges, ActiveRepairService.UNREPAIRED_SSTABLE);
+
+        task.run();
+        long sizeOfSyncTask = ObjectSizes.measureDeep(task);
+
+        // Should the sync task should not retain anything relating to the trees
+        assertTrue(sizeOfSyncTask < (sizeOfDifferenceTask * 0.01));
         assertEquals(0, task.get().numberOfDifferences);
     }
 
@@ -111,7 +151,11 @@ public class LocalSyncTaskTest extends SchemaLoader
         // note: we reuse the same endpoint which is bogus in theory but fine here
         TreeResponse r1 = new TreeResponse(InetAddress.getByName("127.0.0.1"), tree1);
         TreeResponse r2 = new TreeResponse(InetAddress.getByName("127.0.0.2"), tree2);
-        LocalSyncTask task = new LocalSyncTask(desc, r1, r2, ActiveRepairService.UNREPAIRED_SSTABLE);
+        TreeDifferenceTask differenceTask = new TreeDifferenceTask(r1, r2);
+        differenceTask.run();
+
+        LocalSyncTask task = new LocalSyncTask(desc, r1.endpoint, r2.endpoint,
+                                               differenceTask.get().ranges, ActiveRepairService.UNREPAIRED_SSTABLE);
         task.run();
 
         // ensure that the changed range was recorded

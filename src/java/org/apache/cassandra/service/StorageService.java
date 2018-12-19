@@ -3695,7 +3695,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     }
 
     /**
-     * Find the best target to stream hints to. Currently the closest peer according to the snitch
+     * Find the best target to stream hints to. Currently the closest endpoint2 according to the snitch
      */
     private UUID getPreferredHintsStreamTarget()
     {
@@ -3715,7 +3715,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         }
         else
         {
-            // stream to the closest peer as chosen by the snitch
+            // stream to the closest endpoint2 as chosen by the snitch
             DatabaseDescriptor.getEndpointSnitch().sortByProximity(FBUtilities.getBroadcastAddress(), candidates);
             InetAddress hintsDestinationHost = candidates.get(0);
             return tokenMetadata.getHostId(hintsDestinationHost);

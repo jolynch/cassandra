@@ -100,14 +100,14 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
             validations = sendValidationRequest(allEndpoints);
         }
 
-        // When all validations complete, submit sync tasks
-        ListenableFuture<List<SyncStat>> syncResults = Futures.transform(validations, new AsyncFunction<List<TreeResponse>, List<SyncStat>>()
+        // When all validations complete compute the differences. As comparing Merkle trees is slightly
+        // CPU intensive and we are holding trees on heap until we finish, try to do this as fast as
+        // we can using as many cores as we can.
+        ListenableFuture<List<TreeDifference>> differences = Futures.transform(validations, new AsyncFunction<List<TreeResponse>, List<TreeDifference>>()
         {
-            public ListenableFuture<List<SyncStat>> apply(List<TreeResponse> trees) throws Exception
+            public ListenableFuture<List<TreeDifference>> apply(List<TreeResponse> trees)
             {
-                InetAddress local = FBUtilities.getLocalAddress();
-
-                List<SyncTask> syncTasks = new ArrayList<>();
+                List<TreeDifferenceTask> treeDifferenceTasks = new ArrayList<>();
                 // We need to difference all trees one against another
                 for (int i = 0; i < trees.size() - 1; ++i)
                 {
@@ -115,21 +115,40 @@ public class RepairJob extends AbstractFuture<RepairResult> implements Runnable
                     for (int j = i + 1; j < trees.size(); ++j)
                     {
                         TreeResponse r2 = trees.get(j);
-                        SyncTask task;
-                        if (r1.endpoint.equals(local) || r2.endpoint.equals(local))
-                        {
-                            task = new LocalSyncTask(desc, r1, r2, repairedAt);
-                        }
-                        else
-                        {
-                            task = new RemoteSyncTask(desc, r1, r2);
-                            // RemoteSyncTask expects SyncComplete message sent back.
-                            // Register task to RepairSession to receive response.
-                            session.waitForSync(Pair.create(desc, new NodePair(r1.endpoint, r2.endpoint)), (RemoteSyncTask) task);
-                        }
-                        syncTasks.add(task);
-                        taskExecutor.submit(task);
+                        treeDifferenceTasks.add(new TreeDifferenceTask(r1, r2));
                     }
+                }
+                return Futures.allAsList(treeDifferenceTasks);
+            }
+        }, taskExecutor);
+
+        // When all differences complete, submit sync tasks
+        ListenableFuture<List<SyncStat>> syncResults = Futures.transform(differences, new AsyncFunction<List<TreeDifference>, List<SyncStat>>()
+        {
+            public ListenableFuture<List<SyncStat>> apply(List<TreeDifference> treeDifferences) throws Exception
+            {
+                InetAddress local = FBUtilities.getLocalAddress();
+
+                List<SyncTask> syncTasks = new ArrayList<>();
+                for (TreeDifference difference : treeDifferences)
+                {
+                    InetAddress ep1 = difference.endpoint1;
+                    InetAddress ep2 = difference.endpoint2;
+
+                    SyncTask task;
+                    if (ep1.equals(local) || ep2.equals(local))
+                    {
+                        task = new LocalSyncTask(desc, ep1, ep2, difference.ranges, repairedAt);
+                    }
+                    else
+                    {
+                        task = new RemoteSyncTask(desc, ep1, ep2, difference.ranges);
+                        // RemoteSyncTask expects SyncComplete message sent back.
+                        // Register task to RepairSession to receive response.
+                        session.waitForSync(Pair.create(desc, new NodePair(ep1, ep2)), (RemoteSyncTask) task);
+                    }
+                    syncTasks.add(task);
+                    taskExecutor.submit(task);
                 }
                 return Futures.allAsList(syncTasks);
             }

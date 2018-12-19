@@ -17,6 +17,8 @@
  */
 package org.apache.cassandra.repair;
 
+import java.net.InetAddress;
+import java.util.ArrayList;
 import java.util.List;
 
 import com.google.common.util.concurrent.AbstractFuture;
@@ -37,16 +39,25 @@ public abstract class SyncTask extends AbstractFuture<SyncStat> implements Runna
     private static Logger logger = LoggerFactory.getLogger(SyncTask.class);
 
     protected final RepairJobDesc desc;
-    protected final TreeResponse r1;
-    protected final TreeResponse r2;
+    protected final InetAddress firstEndpoint;
+    protected final InetAddress secondEndpoint;
+
+    // Use a List so that we can allow the (potentially large) trees to collected
+    // after the difference calculation is complete in run(). Intentionally private
+    // so that subclassess never get access to the trees (which they shouldn't use).
+    private final List<TreeResponse> responsesToDiff;
 
     protected volatile SyncStat stat;
 
     public SyncTask(RepairJobDesc desc, TreeResponse r1, TreeResponse r2)
     {
         this.desc = desc;
-        this.r1 = r1;
-        this.r2 = r2;
+        this.firstEndpoint = r1.endpoint;
+        this.secondEndpoint = r2.endpoint;
+
+        this.responsesToDiff = new ArrayList<>();
+        this.responsesToDiff.add(r1);
+        this.responsesToDiff.add(r2);
     }
 
     /**
@@ -54,24 +65,27 @@ public abstract class SyncTask extends AbstractFuture<SyncStat> implements Runna
      */
     public void run()
     {
-        // compare trees, and collect differences
-        List<Range<Token>> differences = MerkleTrees.difference(r1.trees, r2.trees);
+        // This is the potentially CPU intensive part, so we do it here rather than before to get full parallelism
+        List<Range<Token>> differences = MerkleTrees.difference(responsesToDiff.get(0).trees, responsesToDiff.get(1).trees);
 
-        stat = new SyncStat(new NodePair(r1.endpoint, r2.endpoint), differences.size());
+        // Allow GC of the Merkle trees, see CASSANDRA-14096
+        responsesToDiff.clear();
+
+        stat = new SyncStat(new NodePair(firstEndpoint, secondEndpoint), differences.size());
 
         // choose a repair method based on the significance of the difference
-        String format = String.format("[repair #%s] Endpoints %s and %s %%s for %s", desc.sessionId, r1.endpoint, r2.endpoint, desc.columnFamily);
+        String format = String.format("[repair #%s] Endpoints %s and %s %%s for %s", desc.sessionId, firstEndpoint, secondEndpoint, desc.columnFamily);
         if (differences.isEmpty())
         {
             logger.info(String.format(format, "are consistent"));
-            Tracing.traceRepair("Endpoint {} is consistent with {} for {}", r1.endpoint, r2.endpoint, desc.columnFamily);
+            Tracing.traceRepair("Endpoint {} is consistent with {} for {}", firstEndpoint, secondEndpoint, desc.columnFamily);
             set(stat);
             return;
         }
 
         // non-0 difference: perform streaming repair
         logger.info(String.format(format, "have " + differences.size() + " range(s) out of sync"));
-        Tracing.traceRepair("Endpoint {} has {} range(s) out of sync with {} for {}", r1.endpoint, differences.size(), r2.endpoint, desc.columnFamily);
+        Tracing.traceRepair("Endpoint {} has {} range(s) out of sync with {} for {}", firstEndpoint, differences.size(), secondEndpoint, desc.columnFamily);
         startSync(differences);
     }
 

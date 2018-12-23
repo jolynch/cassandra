@@ -35,6 +35,7 @@ import org.apache.cassandra.db.partitions.FilteredPartition;
 import org.apache.cassandra.db.partitions.PartitionIterator;
 import org.apache.cassandra.db.partitions.PartitionUpdate;
 import org.apache.cassandra.dht.BootStrapper;
+import org.apache.cassandra.dht.tokenallocator.RandomTokenProvider;
 import org.apache.cassandra.io.util.DataInputBuffer;
 import org.apache.cassandra.io.util.DataInputPlus;
 import org.apache.cassandra.io.util.DataOutputBuffer;
@@ -84,7 +85,7 @@ public class HintTest
         InetAddressAndPort local = FBUtilities.getBroadcastAddressAndPort();
         tokenMeta.clearUnsafe();
         tokenMeta.updateHostId(UUID.randomUUID(), local);
-        tokenMeta.updateNormalTokens(BootStrapper.getRandomTokens(tokenMeta, 1), local);
+        tokenMeta.updateNormalTokens(RandomTokenProvider.getRandomTokens(tokenMeta, 1), local);
 
         for (TableMetadata table : Schema.instance.getTablesAndViews(KEYSPACE))
             MigrationManager.announceTableUpdate(table.unbuild().gcGraceSeconds(864000).build(), true);

@@ -45,6 +45,7 @@ import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
 import org.apache.cassandra.dht.BootStrapper;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.dht.tokenallocator.RandomTokenProvider;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.locator.InetAddressAndPort;
@@ -244,7 +245,7 @@ public class ImportTest extends CQLTester
     public void testGetCorrectDirectory() throws Throwable
     {
         TokenMetadata metadata = StorageService.instance.getTokenMetadata();
-        metadata.updateNormalTokens(BootStrapper.getRandomTokens(metadata, 10), FBUtilities.getBroadcastAddressAndPort());
+        metadata.updateNormalTokens(RandomTokenProvider.getRandomTokens(metadata, 10), FBUtilities.getBroadcastAddressAndPort());
         createTable("create table %s (id int primary key, d int)");
         getCurrentColumnFamilyStore().disableAutoCompaction();
 
@@ -366,9 +367,9 @@ public class ImportTest extends CQLTester
 
         TokenMetadata tmd = StorageService.instance.getTokenMetadata();
 
-        tmd.updateNormalTokens(BootStrapper.getRandomTokens(tmd, 5), InetAddressAndPort.getByName("127.0.0.1"));
-        tmd.updateNormalTokens(BootStrapper.getRandomTokens(tmd, 5), InetAddressAndPort.getByName("127.0.0.2"));
-        tmd.updateNormalTokens(BootStrapper.getRandomTokens(tmd, 5), InetAddressAndPort.getByName("127.0.0.3"));
+        tmd.updateNormalTokens(RandomTokenProvider.getRandomTokens(tmd, 5), InetAddressAndPort.getByName("127.0.0.1"));
+        tmd.updateNormalTokens(RandomTokenProvider.getRandomTokens(tmd, 5), InetAddressAndPort.getByName("127.0.0.2"));
+        tmd.updateNormalTokens(RandomTokenProvider.getRandomTokens(tmd, 5), InetAddressAndPort.getByName("127.0.0.3"));
 
 
         File backupdir = moveToBackupDir(sstables);
@@ -411,9 +412,9 @@ public class ImportTest extends CQLTester
 
         TokenMetadata tmd = StorageService.instance.getTokenMetadata();
 
-        tmd.updateNormalTokens(BootStrapper.getRandomTokens(tmd, 5), InetAddressAndPort.getByName("127.0.0.1"));
-        tmd.updateNormalTokens(BootStrapper.getRandomTokens(tmd, 5), InetAddressAndPort.getByName("127.0.0.2"));
-        tmd.updateNormalTokens(BootStrapper.getRandomTokens(tmd, 5), InetAddressAndPort.getByName("127.0.0.3"));
+        tmd.updateNormalTokens(RandomTokenProvider.getRandomTokens(tmd, 5), InetAddressAndPort.getByName("127.0.0.1"));
+        tmd.updateNormalTokens(RandomTokenProvider.getRandomTokens(tmd, 5), InetAddressAndPort.getByName("127.0.0.2"));
+        tmd.updateNormalTokens(RandomTokenProvider.getRandomTokens(tmd, 5), InetAddressAndPort.getByName("127.0.0.3"));
 
 
         File backupdir = moveToBackupDir(sstables);

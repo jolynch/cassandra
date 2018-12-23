@@ -20,6 +20,7 @@ package org.apache.cassandra.dht;
 
 import java.io.Serializable;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import javax.annotation.Nullable;
@@ -40,19 +41,18 @@ final class BootstrapEvent extends DiagnosticEvent
     @Nullable
     private final TokenMetadata tokenMetadata;
     private final InetAddressAndPort address;
-    @Nullable
-    private final String allocationKeyspace;
-    private final Integer numTokens;
+    private final String tokenProviderClass;
+    private final Map<String, String> tokenProviderArgs;
     private final Collection<Token> tokens;
 
     BootstrapEvent(BootstrapEventType type, InetAddressAndPort address, @Nullable TokenMetadata tokenMetadata,
-                   @Nullable String allocationKeyspace, int numTokens, ImmutableCollection<Token> tokens)
+                   String tokenProviderClass, Map<String, String> tokenProviderArgs, ImmutableCollection<Token> tokens)
     {
         this.type = type;
         this.address = address;
         this.tokenMetadata = tokenMetadata;
-        this.allocationKeyspace = allocationKeyspace;
-        this.numTokens = numTokens;
+        this.tokenProviderClass = tokenProviderClass;
+        this.tokenProviderArgs = Collections.unmodifiableMap(tokenProviderArgs);
         this.tokens = tokens;
     }
 
@@ -74,8 +74,8 @@ final class BootstrapEvent extends DiagnosticEvent
         // be extra defensive against nulls and bugs
         HashMap<String, Serializable> ret = new HashMap<>();
         ret.put("tokenMetadata", String.valueOf(tokenMetadata));
-        ret.put("allocationKeyspace", allocationKeyspace);
-        ret.put("numTokens", numTokens);
+        ret.put("tokenProviderClass", tokenProviderClass);
+        ret.put("tokenProviderArgs", tokenProviderArgs.toString());
         ret.put("tokens", String.valueOf(tokens));
         return ret;
     }

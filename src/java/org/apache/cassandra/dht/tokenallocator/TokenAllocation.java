@@ -18,6 +18,7 @@
 package org.apache.cassandra.dht.tokenallocator;
 
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -96,6 +97,9 @@ public class TokenAllocation
     {
         Map<InetAddressAndPort, Double> ownership = Maps.newHashMap();
         List<Token> sortedTokens = tokenMetadata.sortedTokens();
+        if (sortedTokens.size() == 0)
+            return Collections.emptyMap();
+
         Iterator<Token> it = sortedTokens.iterator();
         Token current = it.next();
         while (it.hasNext())

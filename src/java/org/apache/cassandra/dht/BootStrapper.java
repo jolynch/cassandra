@@ -26,12 +26,13 @@ import com.google.common.util.concurrent.ListenableFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.dht.tokenallocator.RandomTokenProvider;
+import org.apache.cassandra.dht.tokenallocator.TokenProvider;
 import org.apache.cassandra.schema.Schema;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.dht.tokenallocator.TokenAllocation;
 import org.apache.cassandra.exceptions.ConfigurationException;
-import org.apache.cassandra.gms.FailureDetector;
 import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.io.util.DataInputPlus;
@@ -158,31 +159,26 @@ public class BootStrapper extends ProgressEventNotifierSupport
      */
     public static Collection<Token> getBootstrapTokens(final TokenMetadata metadata, InetAddressAndPort address, int schemaWaitDelay) throws ConfigurationException
     {
-        String allocationKeyspace = DatabaseDescriptor.getAllocateTokensForKeyspace();
+        TokenProvider tokenProvider = DatabaseDescriptor.getTokenProvider();
         Collection<String> initialTokens = DatabaseDescriptor.getInitialTokens();
-        if (initialTokens.size() > 0 && allocationKeyspace != null)
+        if (initialTokens.size() > 0 && tokenProvider.getClass() != RandomTokenProvider.class)
             logger.warn("manually specified tokens override automatic allocation");
 
         // if user specified tokens, use those
         if (initialTokens.size() > 0)
         {
             Collection<Token> tokens = getSpecifiedTokens(metadata, initialTokens);
-            BootstrapDiagnostics.useSpecifiedTokens(address, allocationKeyspace, tokens, DatabaseDescriptor.getNumTokens());
+            BootstrapDiagnostics.useSpecifiedTokens(address,
+                                                    tokenProvider.getClass().getName(), tokenProvider.getArguments(),
+                                                    tokens);
             return tokens;
         }
 
-        int numTokens = DatabaseDescriptor.getNumTokens();
-        if (numTokens < 1)
-            throw new ConfigurationException("num_tokens must be >= 1");
+        StorageService.instance.waitForSchema(schemaWaitDelay);
+        Collection<Token> tokens = tokenProvider.allocateTokens(metadata, address);
+        BootstrapDiagnostics.tokensAllocated(address, metadata,
+                                             tokenProvider.getClass().getName(), tokenProvider.getArguments(), tokens);
 
-        if (allocationKeyspace != null)
-            return allocateTokens(metadata, address, allocationKeyspace, numTokens, schemaWaitDelay);
-
-        if (numTokens == 1)
-            logger.warn("Picking random token for a single vnode.  You should probably add more vnodes and/or use the automatic token allocation mechanism.");
-
-        Collection<Token> tokens = getRandomTokens(metadata, numTokens);
-        BootstrapDiagnostics.useRandomTokens(address, metadata, numTokens, tokens);
         return tokens;
     }
 
@@ -198,40 +194,6 @@ public class BootStrapper extends ProgressEventNotifierSupport
                 throw new ConfigurationException("Bootstrapping to existing token " + tokenString + " is not allowed (decommission/removenode the old node first).");
             tokens.add(token);
         }
-        return tokens;
-    }
-
-    static Collection<Token> allocateTokens(final TokenMetadata metadata,
-                                            InetAddressAndPort address,
-                                            String allocationKeyspace,
-                                            int numTokens,
-                                            int schemaWaitDelay)
-    {
-        StorageService.instance.waitForSchema(schemaWaitDelay);
-        if (!FBUtilities.getBroadcastAddressAndPort().equals(InetAddressAndPort.getLoopbackAddress()))
-            Gossiper.waitToSettle();
-
-        Keyspace ks = Keyspace.open(allocationKeyspace);
-        if (ks == null)
-            throw new ConfigurationException("Problem opening token allocation keyspace " + allocationKeyspace);
-        AbstractReplicationStrategy rs = ks.getReplicationStrategy();
-
-        Collection<Token> tokens = TokenAllocation.allocateTokens(metadata, rs, address, numTokens);
-        BootstrapDiagnostics.tokensAllocated(address, metadata, allocationKeyspace, numTokens, tokens);
-        return tokens;
-    }
-
-    public static Collection<Token> getRandomTokens(TokenMetadata metadata, int numTokens)
-    {
-        Set<Token> tokens = new HashSet<>(numTokens);
-        while (tokens.size() < numTokens)
-        {
-            Token token = metadata.partitioner.getRandomToken();
-            if (metadata.getEndpoint(token) == null)
-                tokens.add(token);
-        }
-
-        logger.info("Generated random tokens. tokens are {}", tokens);
         return tokens;
     }
 

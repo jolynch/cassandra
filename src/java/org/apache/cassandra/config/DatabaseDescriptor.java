@@ -51,6 +51,7 @@ import org.apache.cassandra.config.Config.CommitLogSync;
 import org.apache.cassandra.config.EncryptionOptions.ServerEncryptionOptions.InternodeEncryption;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.dht.IPartitioner;
+import org.apache.cassandra.dht.tokenallocator.TokenProvider;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.FSWriteError;
 import org.apache.cassandra.io.util.DiskOptimizationStrategy;
@@ -103,6 +104,7 @@ public class DatabaseDescriptor
     private static InetAddress rpcAddress;
     private static InetAddress broadcastRpcAddress;
     private static SeedProvider seedProvider;
+    private static TokenProvider tokenProvider;
     private static IInternodeAuthenticator internodeAuthenticator = new AllowAllInternodeAuthenticator();
 
     /* Hashing strategy Random or OPHF */
@@ -985,6 +987,25 @@ public class DatabaseDescriptor
             for (String token : tokens)
                 partitioner.getTokenFactory().validate(token);
         }
+
+        if (conf.token_provider == null)
+        {
+            //TODO: if num_tokens defaults to 1... should we kill this fallback ...?
+            Map<String, String> args = Collections.singletonMap("num_tokens", String.valueOf(conf.num_tokens));
+            conf.token_provider = new ParameterizedClass("org.apache.cassandra.dht.tokenallocator.RandomTokenProvider", args);
+        }
+
+        try
+        {
+            Class<?> tokenProviderClassName = Class.forName(conf.token_provider.class_name);
+            tokenProvider = (TokenProvider) tokenProviderClassName.getConstructor(Map.class).newInstance(conf.token_provider.parameters);
+        }
+        // there are about 5 checked exceptions that could be thrown here.
+        catch (Exception e)
+        {
+            logger.error(e.getMessage(), e);
+            throw new ConfigurationException(e.getMessage() + "Could not instantiate TokenProvider. See log for stacktrace.", true);
+        }
     }
 
     // definitely not safe for tools + clients - implicitly instantiates StorageService
@@ -1365,6 +1386,11 @@ public class DatabaseDescriptor
     public static int getNumTokens()
     {
         return conf.num_tokens;
+    }
+
+    public static TokenProvider getTokenProvider()
+    {
+        return tokenProvider;
     }
 
     public static InetAddressAndPort getReplaceAddress()

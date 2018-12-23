@@ -42,6 +42,8 @@ import org.junit.runner.RunWith;
 import org.apache.cassandra.OrderedJUnit4ClassRunner;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.dht.tokenallocator.AutomaticTokenProvider;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.locator.Replica;
 import org.apache.cassandra.schema.Schema;
@@ -236,7 +238,8 @@ public class BootStrapperTest
     private void allocateTokensForNode(int vn, String ks, TokenMetadata tm, InetAddressAndPort addr)
     {
         SummaryStatistics os = TokenAllocation.replicatedOwnershipStats(tm.cloneOnlyTokenMap(), Keyspace.open(ks).getReplicationStrategy(), addr);
-        Collection<Token> tokens = BootStrapper.allocateTokens(tm, addr, ks, vn, 0);
+        AbstractReplicationStrategy rs = Schema.instance.getKeyspaceInstance(ks).getReplicationStrategy();
+        Collection<Token> tokens = AutomaticTokenProvider.allocateTokens(tm, addr, rs, vn);
         assertEquals(vn, tokens.size());
         tm.updateNormalTokens(tokens, addr);
         SummaryStatistics ns = TokenAllocation.replicatedOwnershipStats(tm.cloneOnlyTokenMap(), Keyspace.open(ks).getReplicationStrategy(), addr);

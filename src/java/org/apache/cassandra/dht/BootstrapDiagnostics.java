@@ -19,6 +19,8 @@
 package org.apache.cassandra.dht;
 
 import java.util.Collection;
+import java.util.Map;
+
 import com.google.common.collect.ImmutableList;
 
 import org.apache.cassandra.dht.BootstrapEvent.BootstrapEventType;
@@ -37,38 +39,27 @@ final class BootstrapDiagnostics
     {
     }
 
-    static void useSpecifiedTokens(InetAddressAndPort address, String allocationKeyspace, Collection<Token> initialTokens,
-                                   int numTokens)
+    static void useSpecifiedTokens(InetAddressAndPort address,
+                                   String tokenProviderClass, Map<String, String> tokenProviderArgs,
+                                   Collection<Token> initialTokens)
     {
         if (isEnabled(BootstrapEventType.BOOTSTRAP_USING_SPECIFIED_TOKENS))
             service.publish(new BootstrapEvent(BootstrapEventType.BOOTSTRAP_USING_SPECIFIED_TOKENS,
                                                address,
                                                null,
-                                               allocationKeyspace,
-                                               numTokens,
+                                               tokenProviderClass, tokenProviderArgs,
                                                ImmutableList.copyOf(initialTokens)));
     }
 
-    static void useRandomTokens(InetAddressAndPort address, TokenMetadata metadata, int numTokens, Collection<Token> tokens)
-    {
-        if (isEnabled(BootstrapEventType.BOOTSTRAP_USING_RANDOM_TOKENS))
-            service.publish(new BootstrapEvent(BootstrapEventType.BOOTSTRAP_USING_RANDOM_TOKENS,
-                                               address,
-                                               metadata.cloneOnlyTokenMap(),
-                                               null,
-                                               numTokens,
-                                               ImmutableList.copyOf(tokens)));
-    }
-
     static void tokensAllocated(InetAddressAndPort address, TokenMetadata metadata,
-                                String allocationKeyspace, int numTokens, Collection<Token> tokens)
+                                String tokenProviderClass, Map<String, String> tokenProviderArgs,
+                                Collection<Token> tokens)
     {
         if (isEnabled(BootstrapEventType.TOKENS_ALLOCATED))
             service.publish(new BootstrapEvent(BootstrapEventType.TOKENS_ALLOCATED,
                                                address,
                                                metadata.cloneOnlyTokenMap(),
-                                               allocationKeyspace,
-                                               numTokens,
+                                               tokenProviderClass, tokenProviderArgs,
                                                ImmutableList.copyOf(tokens)));
     }
 

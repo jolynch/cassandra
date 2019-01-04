@@ -2276,6 +2276,11 @@ public class DatabaseDescriptor
         conf.repair_session_max_tree_depth = depth;
     }
 
+    public static boolean getRepairSessionAccountForRF()
+    {
+        return conf.repair_session_account_for_rf;
+    }
+
     public static Float getMemtableCleanupThreshold()
     {
         return conf.memtable_cleanup_threshold;

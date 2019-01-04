@@ -1466,6 +1466,8 @@ public class CompactionManager implements CompactionManagerMBean
         {
             long numPartitions = rangePartitionCounts.get(range);
             double rangeOwningRatio = allPartitions > 0 ? (double)numPartitions / allPartitions : 0;
+            if (DatabaseDescriptor.getRepairSessionAccountForRF())
+                rangeOwningRatio = rangeOwningRatio / Math.max(1, cfs.keyspace.getReplicationStrategy().getReplicationFactor());
             // determine max tree depth proportional to range size to avoid blowing up memory with multiple tress,
             // capping at a configurable depth (default 20) to prevent large tree (CASSANDRA-11390, CASSANDRA-14096)
             int maxDepth = rangeOwningRatio > 0 ? (int) Math.floor(DatabaseDescriptor.getRepairSessionMaxTreeDepth() -

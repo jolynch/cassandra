@@ -526,6 +526,12 @@ memtable_allocation_type: heap_buffers
 # https://issues.apache.org/jira/browse/CASSANDRA-14096.
 #
 # repair_session_max_tree_depth: 20
+#
+# Reduce the maximum size of the repair session merkle trees proportional
+# to the keyspace replication factor. For example with RF=9 enabling this
+# option would reduce the maximum tree depth to 16 from 20
+#
+# repair_session_account_for_rf: false
 
 # Total space to use for commit logs on disk.
 #

@@ -117,6 +117,7 @@ public class Config
 
     // Limit the maximum depth of repair session merkle trees
     public Integer repair_session_max_tree_depth = 20;
+    public boolean repair_session_account_for_rf = false;
 
     public Integer storage_port = 7000;
     public Integer ssl_storage_port = 7001;

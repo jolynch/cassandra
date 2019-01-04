@@ -1957,6 +1957,11 @@ public class DatabaseDescriptor
         conf.repair_session_max_tree_depth = depth;
     }
 
+    public static boolean getRepairSessionAccountForRF()
+    {
+        return conf.repair_session_account_for_rf;
+    }
+
     public static boolean getOutboundBindAny()
     {
         return Config.outboundBindAny || conf.listen_on_broadcast_address;

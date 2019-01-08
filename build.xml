@@ -1300,12 +1300,20 @@
         <jvmarg value="-ea"/>
         <jvmarg value="-Dcassandra.debugrefcount=true"/>
         <jvmarg value="-Xss256k"/>
+        <!-- When we do classloader manipulation SoftReferences can cause memory leaks
+             that can OOM our test runs. The next two settings informs our GC
+             algorithm to limit the metaspace size and clean up SoftReferences
+             more aggressively rather than waiting. See CASSANDRA-14922 for more details.
+        -->
+        <jvmarg value="-XX:MaxMetaspaceSize=256M" />
+        <jvmarg value="-XX:SoftRefLRUPolicyMSPerMB=0" />
         <jvmarg value="-Dcassandra.memtable_row_overhead_computation_step=100"/>
         <jvmarg value="-Dcassandra.test.use_prepared=${cassandra.test.use_prepared}"/>
         <jvmarg value="-Dcassandra.test.offsetseed=@{poffset}"/>
         <jvmarg value="-Dcassandra.test.sstableformatdevelopment=true"/>
         <!-- The first time SecureRandom initializes can be slow if it blocks on /dev/random -->
         <jvmarg value="-Djava.security.egd=file:/dev/urandom" />
+
         <jvmarg value="-Dcassandra.testtag=@{testtag}"/>
         <jvmarg value="-Dcassandra.keepBriefBrief=${cassandra.keepBriefBrief}" />
         <jvmarg line="${java11-jvmargs}"/>
@@ -1374,13 +1382,6 @@
         <jvmarg value="-Dcassandra.tolerate_sstable_size=true"/>
         <jvmarg value="-Dcassandra.config.loader=org.apache.cassandra.OffsetAwareConfigurationLoader"/>
         <jvmarg value="-Dcassandra.skip_sync=true" />
-        <!-- When we do classloader manipulation SoftReferences can cause memory leaks
-             that can OOM our test runs. This setting informs our GC algorithm to clean
-             up SoftReferences more aggressively rather than waiting.
-             See CASSANDRA-14922 for more details.
-        -->
-        <jvmarg value="-XX:MaxMetaspaceSize=256M" />
-        <jvmarg value="-XX:SoftRefLRUPolicyMSPerMB=0" />
       </testmacrohelper>
     </sequential>
   </macrodef>
@@ -1857,6 +1858,7 @@
     <path id="all-test-classes-path">
       <fileset dir="${test.dir}/${test.classlistprefix}" includesfile="${test.classlistfile}"/>
     </path>
+    <echo message="${test.dir}/${test.classlistprefix}"/>
     <property name="all-test-classes" refid="all-test-classes-path"/>
     <testparallel testdelegate="testlist"/>
   </target>

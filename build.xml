@@ -64,6 +64,7 @@
     <property name="test.burn.src" value="${test.dir}/burn"/>
     <property name="test.microbench.src" value="${test.dir}/microbench"/>
     <property name="test.distributed.src" value="${test.dir}/distributed"/>
+    <property name="test.distributed.listfile" value = "ant-jvm-dtest-list"/>
     <property name="dist.dir" value="${build.dir}/dist"/>
     <property name="tmp.dir" value="${java.io.tmpdir}"/>
 
@@ -1262,7 +1263,7 @@
     </copy>
   </target>
 
-  <target name="list-dtests" depends="build-test">
+  <target name="list-jvm-dtests" depends="build-test">
     <java classname="org.apache.cassandra.distributed.test.TestLocator" fork="no">
           <classpath>
               <path refid="cassandra.classpath.test" />
@@ -1272,7 +1273,14 @@
                   <include name="**/*.jar" />
               </fileset>
           </classpath>
+        <arg value="${test.distributed.listfile}"/>
     </java>
+  </target>
+
+  <target name="test-jvm-dtest" depends="list-jvm-dtests" description="Execute JVM 'distributed' tests">
+    <chmod file="${test.distributed.listfile}" perm="+x"/>
+    <exec executable="./${test.distributed.listfile}" />
+    <delete file="${test.distributed.listfile}"/>
   </target>
 
   <target name="dtest-jar" depends="build-test, build" description="Create dtest-compatible jar, including all dependencies">

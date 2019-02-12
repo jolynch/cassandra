@@ -32,13 +32,18 @@ import org.junit.Test;
 
 public class TestLocator
 {
-    private static final String testListFileName = "dtest-list";
+    private static final String defaultOutputFileName = "run-jvm-dtests";
     private static final String testPackage = "org.apache.cassandra.distributed.test";
     private static final String testCommandFormat = "ant testsome -Dtest.name=%s -Dtest.methods=%s";
 
     public static void main(String[] args) throws Throwable
     {
-        try (FileWriter fileWriter = new FileWriter(testListFileName);
+        String outputFileName = defaultOutputFileName;
+        if (args.length == 1)
+        {
+            outputFileName = args[0];
+        }
+        try (FileWriter fileWriter = new FileWriter(outputFileName);
              PrintWriter printWriter = new PrintWriter(fileWriter))
         {
             for (Class testClass : locateClasses(testPackage))

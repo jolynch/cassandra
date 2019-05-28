@@ -17,6 +17,7 @@
  */
 package org.apache.cassandra.db.compaction;
 
+import java.util.Collections;
 import java.util.Map;
 
 import org.apache.cassandra.exceptions.ConfigurationException;
@@ -28,18 +29,24 @@ public final class TargetReadCompactionStrategyOptions
     protected static final long DEFAULT_MAX_COUNT = 2000;
     protected static final long DEFAULT_TARGET_OVERLAP = 4;
     protected static final long DEFAULT_MAX_OVERLAP = 8;
+    protected static final double DEFAULT_TIER_BUCKET_LOW = 0.25;
+    protected static final double DEFAULT_TIER_BUCKET_HIGH = 1.75;
 
     protected static final String MIN_SSTABLE_SIZE_KEY = "min_sstable_size";
     protected static final String TARGET_SSTABLE_SIZE = "target_sstable_size_in_mb";
     protected static final String TARGET_OVERLAP = "target_overlap";
-    protected static final String SSTABLE_MAX_COUNT = "max_sstable_count";
     protected static final String MAX_OVERLAP = "max_overlap";
+    protected static final String SSTABLE_MAX_COUNT = "max_sstable_count";
+    protected static final String TIER_BUCKET_LOW = "tier_bucket_low";
+    protected static final String TIER_BUCKET_HIGH = "tier_bucket_high";
 
-    protected long minSSTableSize;
-    protected long targetSSTableSize;
-    protected long targetOverlap;
-    protected long maxSSTableCount;
-    protected long maxOverlap;
+    protected final long minSSTableSize;
+    protected final long targetSSTableSize;
+    protected final long targetOverlap;
+    protected final long maxSSTableCount;
+    protected final long maxOverlap;
+    protected final double tierBucketLow;
+    protected final double tierBucketHigh;
 
     public TargetReadCompactionStrategyOptions(Map<String, String> options)
     {
@@ -48,15 +55,13 @@ public final class TargetReadCompactionStrategyOptions
         targetOverlap = parseLong(options, TARGET_OVERLAP, DEFAULT_TARGET_OVERLAP);
         maxSSTableCount = parseLong(options, SSTABLE_MAX_COUNT, DEFAULT_MAX_COUNT);
         maxOverlap = parseLong(options, MAX_OVERLAP, DEFAULT_MAX_OVERLAP);
+        tierBucketLow = parseDouble(options, TIER_BUCKET_LOW, DEFAULT_TIER_BUCKET_LOW);
+        tierBucketHigh = parseDouble(options, TIER_BUCKET_HIGH, DEFAULT_TIER_BUCKET_HIGH);
     }
 
     public TargetReadCompactionStrategyOptions()
     {
-        minSSTableSize = DEFAULT_MIN_SSTABLE_SIZE * 1024L * 1024L;
-        targetSSTableSize = DEFAULT_TARGET_SSTABLE_SIZE * 1024L * 1024L;
-        maxSSTableCount = DEFAULT_MAX_COUNT;
-        targetOverlap = DEFAULT_TARGET_OVERLAP;
-        maxOverlap = DEFAULT_MAX_OVERLAP;
+        this(Collections.emptyMap());
     }
 
     private static long parseLong(Map<String, String> options, String key, long defaultValue) throws ConfigurationException
@@ -69,6 +74,19 @@ public final class TargetReadCompactionStrategyOptions
         catch (NumberFormatException e)
         {
             throw new ConfigurationException(String.format("%s is not a parsable long for %s", optionValue, key), e);
+        }
+    }
+
+    private static double parseDouble(Map<String, String> options, String key, double defaultValue) throws ConfigurationException
+    {
+        String optionValue = options.get(key);
+        try
+        {
+            return optionValue == null ? defaultValue : Double.parseDouble(optionValue);
+        }
+        catch (NumberFormatException e)
+        {
+            throw new ConfigurationException(String.format("%s is not a parsable double for %s", optionValue, key), e);
         }
     }
 

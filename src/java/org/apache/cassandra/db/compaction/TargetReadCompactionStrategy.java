@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -30,16 +31,29 @@ import java.util.stream.Collectors;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import com.google.common.primitives.Ints;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.db.DecoratedKey;
+import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
+import org.apache.cassandra.db.lifecycle.SSTableIntervalTree;
+import org.apache.cassandra.db.lifecycle.View;
+import org.apache.cassandra.db.partitions.Partition;
+import org.apache.cassandra.dht.AbstractBounds;
+import org.apache.cassandra.dht.IPartitioner;
+import org.apache.cassandra.dht.Range;
+import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.SSTable;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.schema.CompactionParams;
+import org.apache.cassandra.utils.Interval;
 import org.apache.cassandra.utils.Pair;
 
 import static com.google.common.collect.Iterables.filter;
@@ -123,31 +137,110 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         Set<SSTableReader> overlapCandidates = compactionCandidates.stream()
                                                                    .filter(s -> s.getSSTableLevel() > 0)
                                                                    .collect(Collectors.toSet());
-        Map<Set<SSTableReader>, Long> targets = new HashMap<>();
+
+        SSTableIntervalTree tree = SSTableIntervalTree.build(overlapCandidates);
+
+        List<SSTableReader> sortedByFirst = Lists.newArrayList(overlapCandidates);
+        sortedByFirst.sort(Comparator.comparing(o -> o.first));
+
+        PartitionPosition last = tree.min();
+        List<Range<PartitionPosition>> coveringRanges = new ArrayList<>();
+
+        for (SSTableReader sstable : sortedByFirst)
+        {
+            // Wait until we get past the last covering range
+            if (sstable.last.compareTo(last) < 0)
+                continue;
+
+            List<SSTableReader> overlapping = View.sstablesInBounds(sstable.first, sstable.last, tree);
+            PartitionPosition min = sstable.first;
+            PartitionPosition max = sstable.last;
+            for (SSTableReader overlap : overlapping)
+            {
+                if (overlap.first.compareTo(min) < 0)
+                    min = overlap.first;
+                if (overlap.last.compareTo(max) > 0)
+                    max = overlap.last;
+            }
+            coveringRanges.add(new Range<>(min, max));
+            last = max;
+        }
+
+        logger.debug("Found {} covering ranges", coveringRanges);
+
+        for (Range<PartitionPosition> coveringRange : coveringRanges)
+        {
+            List<SSTableReader> overlappingInRange = View.sstablesInBounds(coveringRange.left, coveringRange.right, tree);
+            Map<Integer, Set<SSTableReader>> sstablesByLevel = new HashMap<>();
+            for (SSTableReader sstable : overlappingInRange)
+            {
+                Set<SSTableReader> sstables = sstablesByLevel.get(sstable.getSSTableLevel());
+                if (sstables == null)
+                    sstables = new HashSet<>();
+                sstables.add(sstable);
+            }
+        }
+
+
+        // Level is a proxy for overwrite factor
+        List<Pair<SSTableReader, Long>> overlappingByLevel = overlapping.stream()
+                                                                        .map(s -> Pair.create(s, (long) s.getSSTableLevel()))
+                                                                        .collect(Collectors.toList());
+
+        List<List<SSTableReader>> buckets = SizeTieredCompactionStrategy.getBuckets(overlappingByLevel,
+                                                                                    targetReadOptions.tierBucketLow,
+                                                                                    targetReadOptions.tierBucketHigh,
+                                                                                    0);
+
+        View.sstablesInBounds(PartitionPosition left, PartitionPosition right, SSTableIntervalTree intervalTree)
+        tree.search()
+
+        //
+        Map<Range<Token>, Map<Long, Set<SSTableReader>>>
+
+        SortedMap
+        // { overlaps } -> { to compact, num to compact }
+        Map<Set<SSTableReader>, Pair<List<SSTableReader>, Long>> targets = new HashMap<>();
 
         for (SSTableReader sstable : overlapCandidates)
         {
             Collection<SSTableReader> overlappingLive = cfs.getOverlappingLiveSSTables(Collections.singleton(sstable));
+            // Only consider overlapping sstables which are candidates for compaction in the first place
             Set<SSTableReader> overlapping = ImmutableSet.copyOf(Sets.intersection(ImmutableSet.copyOf(overlappingLive), overlapCandidates));
             if (!targets.containsKey(overlapping) && overlapping.size() > targetReadOptions.targetOverlap)
             {
-                targets.put(overlapping, getBytesReclaimed(overlapping));
+
+
+                long maxBucketedLevels = 0;
+                int maxIndex = 0;
+                for (int i = 0; i < buckets.size(); i++)
+                {
+                    long numLevels = numLevels(buckets.get(i));
+                    if (numLevels > maxBucketedLevels)
+                    {
+                        maxBucketedLevels = numLevels;
+                        maxIndex = i;
+                    }
+                }
+                targets.put(overlapping, Pair.create(buckets.get(maxIndex), maxBucketedLevels));
             }
         }
 
-        List<Map.Entry<Set<SSTableReader>, Long>> sortedTargets = targets.entrySet()
-                                                                         .stream()
-                                                                         // reverse value order
-                                                                         .sorted((c1, c2) -> c2.getValue().compareTo(c1.getValue()))
-                                                                         .collect(Collectors.toList());
+        List<Map.Entry<Set<SSTableReader>, Pair<List<SSTableReader>, Long>>> sortedTargets;
+        sortedTargets = targets.entrySet()
+                               .stream()
+                               // reverse value order
+                               .sorted((c1, c2) -> c2.getValue().right.compareTo(c1.getValue().right))
+                               .collect(Collectors.toList());
 
         Set<SSTableReader> result = new HashSet<>();
         int countOver = 0;
         int index = 0;
         int targetIndex = 0;
-        for (Map.Entry<Set<SSTableReader>, Long> target : sortedTargets)
+        for (Map.Entry<Set<SSTableReader>, Pair<List<SSTableReader>, Long>> target : sortedTargets)
         {
-            if (target.getValue() > targetSSTableSize || target.getKey().size() >= targetReadOptions.maxOverlap)
+            if (target.getValue().left.size() > targetSSTableSize ||
+                target.getKey().size() >= targetReadOptions.maxOverlap)
             {
                 if (index == 0)
                     index = targetIndex;
@@ -170,7 +263,7 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
 
         if (result.size() > 0)
         {
-            logger.debug("Choosing {} sstables of tiers {} for compaction, will get {} bytes back",
+            logger.debug("Choosing {} sstables of tiers {} for compaction, collapsing {} ",
                          result.size(), result.stream().mapToInt(SSTableReader::getSSTableLevel).toArray(),
                          sortedTargets.get(index).getValue());
             return new ArrayList<>(result);

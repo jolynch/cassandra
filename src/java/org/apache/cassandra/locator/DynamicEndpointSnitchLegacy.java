@@ -16,15 +16,11 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.locator.dynamicsnitch;
+package org.apache.cassandra.locator;
 
 import java.util.Map;
 
 import com.google.common.annotations.VisibleForTesting;
-
-import org.apache.cassandra.locator.IEndpointSnitch;
-import org.apache.cassandra.locator.InetAddressAndPort;
-import org.apache.cassandra.net.MessagingService;
 
 /**
  * The legacy dynamic snitching implementation (prior to 4.0) that uses Exponentially Decaying Histograms to
@@ -33,15 +29,15 @@ import org.apache.cassandra.net.MessagingService;
  *
  * This is left only for users that explicitly want the old behavior.
  */
-public class DynamicEndpointSnitchLegacyHistogram extends DynamicEndpointSnitchHistogram
+public class DynamicEndpointSnitchLegacy extends DynamicEndpointSnitch
 {
     // Called via reflection
-    public DynamicEndpointSnitchLegacyHistogram(IEndpointSnitch snitch)
+    public DynamicEndpointSnitchLegacy(IEndpointSnitch snitch)
     {
         this(snitch, "legacy");
     }
 
-    public DynamicEndpointSnitchLegacyHistogram(IEndpointSnitch snitch, String instance)
+    public DynamicEndpointSnitchLegacy(IEndpointSnitch snitch, String instance)
     {
         super(snitch, instance);
     }

@@ -4717,7 +4717,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             if (!ScheduledExecutors.nonPeriodicTasks.awaitTermination(1, MINUTES))
                 logger.warn("Failed to wait for non periodic tasks to shutdown");
 
-            ScheduledExecutors.shutdownAndWait();
+            ScheduledExecutors.shutdownAndWait(10, TimeUnit.SECONDS);
 
             ColumnFamilyStore.shutdownPostFlushExecutor();
             setMode(Mode.DRAINED, !isFinalShutdown);
@@ -5116,11 +5116,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         }
 
         updateTopology();
-    }
-
-    public void doLocalReadTest()
-    {
-
     }
 
     /**

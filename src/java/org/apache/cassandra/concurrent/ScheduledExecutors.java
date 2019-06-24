@@ -17,8 +17,8 @@
  */
 package org.apache.cassandra.concurrent;
 
+import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
@@ -35,7 +35,7 @@ public class ScheduledExecutors
     /**
      * Holds all shared executors keyed by name and how long we should wait for them on shutdown
      */
-    private static Map<String, DebuggableScheduledThreadPoolExecutor> executors = new ConcurrentHashMap<>();
+    private static Map<String, DebuggableScheduledThreadPoolExecutor> executors = new HashMap<>();
 
     /**
      * Either retrieves an existing named DebuggabledScheduledThreadPoolExecutor (DSTPE), or creates a new one if it
@@ -44,7 +44,7 @@ public class ScheduledExecutors
      *
      * Use this instead of manually constructing DSTPE instances so that when Cassandra needs to properly shutdown
      * threadpools it can from this central location. These pools will be waited on for one minute by default to
-     * shutdown. If you need them to be waited on longer or have more fine graind control over construction, use
+     * shutdown. If you need more fine graind control over construction, use
      * {@link ScheduledExecutors#getOrCreateSharedExecutor(String, Function)}
      *
      * @param name The name of the DSTPE to get or create
@@ -58,7 +58,7 @@ public class ScheduledExecutors
     /**
      * Either retrieves an existing named DebuggabledScheduledThreadPoolExecutor (DSTPE), or creates a new one if it
      * does not exist. Note that this method is thread safe, and will create a single unique executor per unique
-     * (name, shutdownWaitTimeInSeconds) combination passed.
+     * name passed.
      *
      * Use this instead of manually constructing DSTPE instances so that when Cassandra needs to properly shutdown
      * threadpools it can from this central location.
@@ -67,8 +67,8 @@ public class ScheduledExecutors
      * @param create The constructor you want to use to construct the DSTPE
      * @return Either a freshly constructed or previously cached DebuggableScheduledThreadPoolExecutor
      */
-    public static DebuggableScheduledThreadPoolExecutor getOrCreateSharedExecutor(String name,
-                                                                                  Function<String, DebuggableScheduledThreadPoolExecutor> create)
+    public static synchronized DebuggableScheduledThreadPoolExecutor getOrCreateSharedExecutor(String name,
+                                                                                               Function<String, DebuggableScheduledThreadPoolExecutor> create)
     {
         executors.putIfAbsent(name, create.apply(name));
         return executors.get(name);

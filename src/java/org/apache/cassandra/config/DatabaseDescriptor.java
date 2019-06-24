@@ -62,11 +62,11 @@ import org.apache.cassandra.io.util.SsdDiskOptimizationStrategy;
 import org.apache.cassandra.locator.DynamicEndpointSnitch;
 import org.apache.cassandra.locator.EndpointSnitchInfo;
 import org.apache.cassandra.locator.IEndpointSnitch;
-import org.apache.cassandra.locator.ILatencySubscriber;
 import org.apache.cassandra.locator.InetAddressAndPort;
 import org.apache.cassandra.locator.Replica;
 import org.apache.cassandra.locator.SeedProvider;
 import org.apache.cassandra.net.BackPressureStrategy;
+import org.apache.cassandra.net.LatencySubscribers;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.net.RateBasedBackPressure;
 import org.apache.cassandra.security.EncryptionContext;
@@ -1075,7 +1075,7 @@ public class DatabaseDescriptor
         if (conf.dynamic_snitch_reset_interval_in_ms != null)
             logger.warn("dynamic_snitch_reset_interval_in_ms has been deprecated and should be removed from cassandra.yaml");
 
-        if (!conf.dynamic_snitch_class_name.equals("org.apache.cassandra.locator.dynamicsnitch.DynamicEndpointSnitchHistogram"))
+        if (!conf.dynamic_snitch_class_name.equals("org.apache.cassandra.locator.DynamicEndpointSnitch"))
             logger.warn("Using the non standard DynamicSnitch is unsupported. Use at your own risk!");
 
         // We don't want to instantiate the MessagingService at this point, let the MessagingService register
@@ -1157,14 +1157,14 @@ public class DatabaseDescriptor
         if (dynamicSnitchClassName != null)
         {
             if (!dynamicSnitchClassName.contains("."))
-                dynamicSnitchClassName = "org.apache.cassandra.locator.dynamicsnitch." + dynamicSnitchClassName;
+                dynamicSnitchClassName = "org.apache.cassandra.locator." + dynamicSnitchClassName;
             Class<DynamicEndpointSnitch> cls = FBUtilities.classForName(dynamicSnitchClassName,
                                                                         "dynamicSnitch");
             try
             {
                 IEndpointSnitch endpointSnitch = cls.getConstructor(IEndpointSnitch.class).newInstance(snitch);
                 if (registerForLatencyUpdates)
-                    MessagingService.instance().registerLatencySubscriber((ILatencySubscriber) endpointSnitch);
+                    MessagingService.instance().latencySubscribers.subscribe((LatencySubscribers.Subscriber) endpointSnitch);
                 return endpointSnitch;
             }
             catch (NoSuchMethodException | IllegalAccessException | InvocationTargetException | InstantiationException e)

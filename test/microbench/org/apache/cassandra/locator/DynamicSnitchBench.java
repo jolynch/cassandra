@@ -23,7 +23,6 @@ import java.util.Random;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
-import org.apache.cassandra.locator.dynamicsnitch.DynamicEndpointSnitchHistogram;
 import org.apache.cassandra.net.LatencyMeasurementType;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
@@ -47,7 +46,7 @@ import org.openjdk.jmh.annotations.Warmup;
 @Fork(value = 1, jvmArgsPrepend = "-Xmx256M")
 public class DynamicSnitchBench
 {
-    private DynamicEndpointSnitchHistogram histogramSnitch;
+    private DynamicEndpointSnitch histogramSnitch;
     private EndpointsForRange neighbors;
     private Random srandom;
 
@@ -62,7 +61,7 @@ public class DynamicSnitchBench
         // So the snitch doesn't consult gossip information
         System.setProperty("cassandra.ignore_dynamic_snitch_severity", "true");
         SimpleSnitch ss = new SimpleSnitch();
-        histogramSnitch = new DynamicEndpointSnitchHistogram(ss);
+        histogramSnitch = new DynamicEndpointSnitch(ss);
         histogramSnitch.applyConfigChanges(100,
                                            (int)DynamicEndpointSnitch.MAX_PROBE_INTERVAL_MS,
                                            0.2);
@@ -90,6 +89,7 @@ public class DynamicSnitchBench
         {
             histogramSnitch.receiveTiming(hosts[i],
                                           srandom.nextInt(100),
+                                          TimeUnit.MILLISECONDS,
                                           LatencyMeasurementType.PROBE);
         }
     }
@@ -101,6 +101,7 @@ public class DynamicSnitchBench
         {
             histogramSnitch.receiveTiming(hosts[srandom.nextInt(hosts.length)],
                                           srandom.nextInt(100),
+                                          TimeUnit.MILLISECONDS,
                                           LatencyMeasurementType.READ);
         }
     }
@@ -112,6 +113,7 @@ public class DynamicSnitchBench
         {
             histogramSnitch.receiveTiming(hosts[srandom.nextInt(hosts.length)],
                                           srandom.nextInt(100),
+                                          TimeUnit.MILLISECONDS,
                                           LatencyMeasurementType.READ);
         }
 
@@ -127,6 +129,7 @@ public class DynamicSnitchBench
         {
             histogramSnitch.receiveTiming(neighbors.get(srandom.nextInt(neighbors.size())).endpoint(),
                                           srandom.nextInt(100),
+                                          TimeUnit.MILLISECONDS,
                                           LatencyMeasurementType.READ);
         }
 
@@ -162,6 +165,7 @@ public class DynamicSnitchBench
         for (int i = 0; i < NUM_UPDATES; i++)
         {
             histogramSnitch.receiveTiming(hosts[trandom.nextInt(hosts.length)], trandom.nextInt(100),
+                                          TimeUnit.MILLISECONDS,
                                           LatencyMeasurementType.READ);
         }
     }

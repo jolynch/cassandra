@@ -44,37 +44,37 @@ import com.google.common.util.concurrent.SettableFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.codahale.metrics.ExponentiallyDecayingReservoir;
+import com.codahale.metrics.Reservoir;
 import org.apache.cassandra.concurrent.DebuggableScheduledThreadPoolExecutor;
 import org.apache.cassandra.concurrent.ScheduledExecutors;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.exceptions.RequestFailureReason;
 import org.apache.cassandra.gms.ApplicationState;
 import org.apache.cassandra.gms.EndpointState;
 import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.gms.VersionedValue;
 import org.apache.cassandra.net.LatencySubscribers;
-import org.apache.cassandra.locator.dynamicsnitch.DynamicEndpointSnitchHistogram;
-import org.apache.cassandra.net.IAsyncCallbackWithFailure;
 import org.apache.cassandra.net.LatencyMeasurementType;
-import org.apache.cassandra.net.MessageIn;
-import org.apache.cassandra.net.MessageOut;
+import org.apache.cassandra.net.Message;
 import org.apache.cassandra.net.MessagingService;
-import org.apache.cassandra.net.PingMessage;
+import org.apache.cassandra.net.PingRequest;
+import org.apache.cassandra.net.RequestCallback;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.MBeanWrapper;
 
-import static org.apache.cassandra.net.MessagingService.Verb.PING;
-import static org.apache.cassandra.net.async.OutboundConnectionIdentifier.ConnectionType.LARGE_MESSAGE;
-import static org.apache.cassandra.net.async.OutboundConnectionIdentifier.ConnectionType.SMALL_MESSAGE;
+import static io.netty.handler.codec.http2.Http2FrameTypes.PING;
+import static org.apache.cassandra.net.Verb.PING_REQ;
 
 
 /**
- * A dynamic snitch that sorts endpoints by latency with an adapted phi failure detector
- * Note that the subclasses (e.g. {@link DynamicEndpointSnitchHistogram}) are responsible for actually measuring
- * latency and providing an ISnitchMeasurement implementation back to this class.
+ * A dynamic snitch that sorts endpoints by latency
+ * Note that there are a number of intentinal seams, e.g. the measurementImpl function, so that subclasses can change
+ * pieces of the DES's behavior without re-writing a large amount of it.
  */
-public abstract class DynamicEndpointSnitch extends AbstractEndpointSnitch implements LatencySubscribers.Subscriber, DynamicEndpointSnitchMBean
+public class DynamicEndpointSnitch extends AbstractEndpointSnitch implements LatencySubscribers.Subscriber, DynamicEndpointSnitchMBean
 {
     private static final Logger logger = LoggerFactory.getLogger(DynamicEndpointSnitch.class);
 
@@ -87,7 +87,8 @@ public abstract class DynamicEndpointSnitch extends AbstractEndpointSnitch imple
     // Latency probe functionality for actively probing endpoints that we haven't measured recently but are ranking
     public static final String LATENCY_PROBE_TP_NAME = "LatencyProbes";
     public static final long MAX_PROBE_INTERVAL_MS = Long.getLong("cassandra.dynamic_snitch_max_probe_interval_ms", 60 * 10 * 1000L);
-    public static final long MIN_PROBE_INTERVAL_MS = Long.getLong("cassandra.dynamic_snitch_min_probe_interval_ms", 60 * 1000L) ;
+    public static final long MIN_PROBE_INTERVAL_MS = Long.getLong("cassandra.dynamic_snitch_min_probe_interval_ms", 60 * 1000L);
+
     // The probe rate is set later when configuration is read in applyConfigChanges
     protected final RateLimiter probeRateLimiter;
     protected final DebuggableScheduledThreadPoolExecutor latencyProbeExecutor;
@@ -138,27 +139,35 @@ public abstract class DynamicEndpointSnitch extends AbstractEndpointSnitch imple
      * Update configuration of the background tasks and restart the various scheduler tasks
      * if the configured rates for these tasks have changed.
      */
-    public void applyConfigChanges(int newDynamicUpdateInternal, int newDynamicSampleUpdateInterval,
+    public void applyConfigChanges(int newDynamicUpdateInterval, int newDynamicSampleUpdateInterval,
                                    double newDynamicBadnessThreshold)
     {
+        if (newDynamicUpdateInterval < 10 || newDynamicUpdateInterval > 10000)
+            throw new ConfigurationException("Dynamic snitch update interval cannot be less than 10ms or longer than " +
+                                             "10 seconds. If you want updates to be that infrequent turn off the " +
+                                             "dsnitch entirely.");
+        if (newDynamicSampleUpdateInterval < 1)
+            throw new ConfigurationException("Dynamic snitch samples cannot be updated less frequently than 1ms.");
+        if (newDynamicBadnessThreshold < 0)
+            throw new ConfigurationException("Dynamic snitch badness threshold cannot be less than 0");
+
         if (DatabaseDescriptor.isDaemonInitialized())
         {
-            if (dynamicUpdateInterval != newDynamicUpdateInternal || updateScoresScheduler == null)
+            if (dynamicUpdateInterval != newDynamicUpdateInterval || updateScoresScheduler == null)
             {
                 ensureCancelled(updateScoresScheduler);
-                updateScoresScheduler = ScheduledExecutors.scheduledTasks.scheduleWithFixedDelay(this::updateScores, newDynamicUpdateInternal, newDynamicUpdateInternal, TimeUnit.MILLISECONDS);
+                updateScoresScheduler = ScheduledExecutors.scheduledTasks.scheduleWithFixedDelay(this::updateScores, newDynamicUpdateInterval, newDynamicUpdateInterval, TimeUnit.MILLISECONDS);
             }
 
             if (dynamicSampleUpdateInterval != newDynamicSampleUpdateInterval || updateSamplesScheduler == null)
             {
                 ensureCancelled(updateSamplesScheduler);
-                if (newDynamicSampleUpdateInterval > 0)
-                    updateSamplesScheduler = ScheduledExecutors.scheduledTasks.scheduleWithFixedDelay(this::updateSamples, newDynamicSampleUpdateInterval, newDynamicSampleUpdateInterval, TimeUnit.MILLISECONDS);
+                updateSamplesScheduler = ScheduledExecutors.scheduledTasks.scheduleWithFixedDelay(this::updateSamples, newDynamicSampleUpdateInterval, newDynamicSampleUpdateInterval, TimeUnit.MILLISECONDS);
             }
         }
 
-        dynamicUpdateInterval = newDynamicUpdateInternal;
-        dynamicUpdateInterval = newDynamicUpdateInternal;
+        dynamicUpdateInterval = newDynamicUpdateInterval;
+        dynamicUpdateInterval = newDynamicUpdateInterval;
         dynamicSampleUpdateInterval = newDynamicSampleUpdateInterval;
         dynamicBadnessThreshold = newDynamicBadnessThreshold;
 
@@ -184,7 +193,7 @@ public abstract class DynamicEndpointSnitch extends AbstractEndpointSnitch imple
         mbeanRegistered = true;
 
         if (registerForLatency)
-            MessagingService.instance().registerLatencySubscriber(this);
+            MessagingService.instance().latencySubscribers.subscribe(this);
 
     }
 
@@ -211,7 +220,7 @@ public abstract class DynamicEndpointSnitch extends AbstractEndpointSnitch imple
         if (mbeanRegistered)
             MBeanWrapper.instance.unregisterMBean(mbeanName);
 
-        MessagingService.instance().unregisterLatencySubscriber(this);
+        MessagingService.instance().latencySubscribers.unsubscribe(this);
 
         mbeanRegistered = false;
     }
@@ -261,7 +270,7 @@ public abstract class DynamicEndpointSnitch extends AbstractEndpointSnitch imple
      * {@link AnnotatedMeasurement#millisSinceLastRequest} is set to zero through
      * {@link DynamicEndpointSnitch#sortedByProximity(InetAddressAndPort, ReplicaCollection)}.
      * {@link AnnotatedMeasurement#millisSinceLastMeasure} is set to zero from
-     * {@link DynamicEndpointSnitch#receiveTiming(InetAddressAndPort, long, LatencyMeasurementType)}.
+     * {@link DynamicEndpointSnitch#receiveTiming(InetAddressAndPort, long, TimeUnit, LatencyMeasurementType)}.
      *
      * {@link AnnotatedMeasurement#millisSinceLastMeasure and {@link AnnotatedMeasurement#nextProbeDelayMillis }
      * are incremented via {@link DynamicEndpointSnitch#updateSamples()}
@@ -300,13 +309,51 @@ public abstract class DynamicEndpointSnitch extends AbstractEndpointSnitch imple
         }
     }
 
+    // Essentially a Median filter
+    protected static class ReservoirSnitchMeasurement implements ISnitchMeasurement
+    {
+        private static final double ALPHA = 0.75; // set to 0.75 to make DES more biased to towards the newer values
+        private static final int WINDOW_SIZE = 100;
+
+        public final Reservoir reservoir;
+
+        ReservoirSnitchMeasurement()
+        {
+            reservoir = new ExponentiallyDecayingReservoir(WINDOW_SIZE, ALPHA);
+        }
+
+        public void sample(long value)
+        {
+            reservoir.update(value);
+        }
+
+        @Override
+        public double measure()
+        {
+            return reservoir.getSnapshot().getMedian();
+        }
+
+        @Override
+        public Iterable<Double> measurements()
+        {
+            long[] timings = reservoir.getSnapshot().getValues();
+            List<Double> measurements = new ArrayList<>(timings.length);
+            for (double timing : timings)
+                measurements.add(timing);
+            return measurements;
+        }
+    }
+
     /**
      * Allows the subclasses to inject ISnitchMeasurement instances back into this common class so that common
      * functionality can be handled here
      * @param initialValue The initial value of the measurement, some implementations may use this, others may not
      * @return a constructed instance of an ISnitchMeasurement interface
      */
-    abstract protected ISnitchMeasurement measurementImpl(long initialValue);
+    protected ISnitchMeasurement measurementImpl(long initialValue)
+    {
+        return new ReservoirSnitchMeasurement();
+    }
 
     /**
      * Records a latency. This MUST be cheap as it is called in the fast path
@@ -479,8 +526,7 @@ public abstract class DynamicEndpointSnitch extends AbstractEndpointSnitch imple
             long delay = measurement.nextProbeDelayMillis;
             if (delay > 0 && (measurement.probeFuture == null || measurement.probeFuture.isDone()))
             {
-                if (logger.isTraceEnabled())
-                    logger.trace("Scheduled latency probe against {} in {}ms", entry.getKey(), delay);
+                logger.trace("Scheduled latency probe against {} in {}ms", entry.getKey(), delay);
                 measurement.probeFuture = latencyProbeExecutor.schedule(() -> sendLatencyProbeToPeer(entry.getKey()),
                                                                         delay, TimeUnit.MILLISECONDS);
             }
@@ -515,15 +561,13 @@ public abstract class DynamicEndpointSnitch extends AbstractEndpointSnitch imple
             if (minimumLatency == Long.MAX_VALUE)
                 minimumLatency = 0;
 
-            if (logger.isTraceEnabled())
-                logger.trace("Local latency probe, using global minimum measurement: {}us", (long) minimumLatency);
+            logger.trace("Local latency probe, using global minimum measurement: {}us", (long) minimumLatency);
 
-            receiveTiming(to, (long) minimumLatency, LatencyMeasurementType.PROBE);
+            receiveTiming(to, (long) minimumLatency, TimeUnit.MICROSECONDS, LatencyMeasurementType.PROBE);
             return;
         }
 
-        if (logger.isTraceEnabled())
-            logger.trace("Latency probe sending a small and large PingMessage to {}", to);
+        logger.trace("Latency probe sending a small and large PingMessage to {}", to);
 
         // Bypass the normal latency measurement path so we can compute maximum latencies of the two probe
         // messages. This way we can measure the "worst case" via these pings. This complexity may not be
@@ -533,36 +577,34 @@ public abstract class DynamicEndpointSnitch extends AbstractEndpointSnitch imple
         SettableFuture<Long> smallChannelLatencyNanos = SettableFuture.create();
         SettableFuture<Long> largeChannelLatencyNanos = SettableFuture.create();
 
-        IAsyncCallbackWithFailure smallChannelCallback = new IAsyncCallbackWithFailure()
+        RequestCallback smallChannelCallback = new RequestCallback()
         {
             public void onFailure(InetAddressAndPort from, RequestFailureReason failureReason)
             {
                 smallChannelLatencyNanos.set(System.nanoTime() - start);
             }
 
-            public void response(MessageIn msg)
+            public void onResponse(Message msg)
             {
                 smallChannelLatencyNanos.set(System.nanoTime() - start);
             }
         };
-        IAsyncCallbackWithFailure largeChannelCallback = new IAsyncCallbackWithFailure()
+        RequestCallback largeChannelCallback = new RequestCallback()
         {
             public void onFailure(InetAddressAndPort from, RequestFailureReason failureReason)
             {
                 largeChannelLatencyNanos.set(System.nanoTime() - start);
             }
-            public void response(MessageIn msg)
+            public void onResponse(Message msg)
             {
                 largeChannelLatencyNanos.set(System.nanoTime() - start);
             }
         };
 
-        MessageOut<PingMessage> smallChannelMessageOut = new MessageOut<>(PING, PingMessage.smallChannelMessage,
-                                                                          PingMessage.serializer, SMALL_MESSAGE);
-        MessageOut<PingMessage> largeChannelMessageOut = new MessageOut<>(PING, PingMessage.largeChannelMessage,
-                                                                          PingMessage.serializer, LARGE_MESSAGE);
-        MessagingService.instance().sendRRWithFailure(smallChannelMessageOut, to, smallChannelCallback);
-        MessagingService.instance().sendRRWithFailure(largeChannelMessageOut, to, largeChannelCallback);
+        Message smallChannelMessageOut = Message.out(PING_REQ, PingRequest.forSmall);
+        Message largeChannelMessageOut = Message.out(PING_REQ, PingRequest.forLarge);
+        MessagingService.instance().sendWithCallback(smallChannelMessageOut, to, smallChannelCallback);
+        MessagingService.instance().sendWithCallback(largeChannelMessageOut, to, largeChannelCallback);
 
         // This should execute on the RequestResponse stage thread unless both futures are already done
         Futures.allAsList(smallChannelLatencyNanos, largeChannelLatencyNanos).addListener(() -> {
@@ -570,9 +612,9 @@ public abstract class DynamicEndpointSnitch extends AbstractEndpointSnitch imple
             {
                 long latencySmallNanos = smallChannelLatencyNanos.get();
                 long latencyLargeNanos = largeChannelLatencyNanos.get();
-                long maxLatencyInMicros = TimeUnit.NANOSECONDS.toMicros(Math.max(latencySmallNanos, latencyLargeNanos));
-                logger.trace("Latency probe recording latency of {}us for {}", maxLatencyInMicros, to);
-                receiveTiming(to, maxLatencyInMicros, LatencyMeasurementType.PROBE);
+                long maxLatencyNanos = Math.max(latencySmallNanos, latencyLargeNanos);
+                logger.trace("Latency probe recording latency of {}ns for {}", maxLatencyNanos, to);
+                receiveTiming(to, maxLatencyNanos, TimeUnit.NANOSECONDS, LatencyMeasurementType.PROBE);
             }
             catch (InterruptedException | ExecutionException e)
             {
@@ -749,8 +791,7 @@ public abstract class DynamicEndpointSnitch extends AbstractEndpointSnitch imple
         AnnotatedMeasurement sample = samples.get(host);
         if (sample != null)
         {
-            if (logger.isTraceEnabled())
-                logger.trace("{} -> {}", host, sample.toString());
+            logger.trace("{} -> {}", host, sample.toString());
             for (double measurement: sample.measurement.measurements())
                 timings.add(measurement);
         }

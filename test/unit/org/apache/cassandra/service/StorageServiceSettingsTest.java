@@ -34,8 +34,7 @@ import org.apache.cassandra.locator.DynamicEndpointSnitch;
 import org.apache.cassandra.locator.IEndpointSnitch;
 import org.apache.cassandra.locator.PropertyFileSnitch;
 import org.apache.cassandra.locator.SimpleSnitch;
-import org.apache.cassandra.locator.dynamicsnitch.DynamicEndpointSnitchHistogram;
-import org.apache.cassandra.locator.dynamicsnitch.DynamicEndpointSnitchLegacyHistogram;
+import org.apache.cassandra.locator.DynamicEndpointSnitchLegacy;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -86,7 +85,7 @@ public class StorageServiceSettingsTest
         assertEquals(oldSnitch, DatabaseDescriptor.getEndpointSnitch());
 
         // Configuration should stay the same even when changing snitches
-        StorageService.instance.updateEndpointSnitch(null, "DynamicEndpointSnitchHistogram", null, null, null);
+        StorageService.instance.updateEndpointSnitch(null, "DynamicEndpointSnitch", null, null, null);
         assertEquals(111, DatabaseDescriptor.getDynamicUpdateInterval());
         assertEquals(2003, DatabaseDescriptor.getDynamicSampleUpdateInterval());
         assertEquals(0.27, DatabaseDescriptor.getDynamicBadnessThreshold(), 0.01);
@@ -123,11 +122,11 @@ public class StorageServiceSettingsTest
         // and start the DES. There should only ever be one thread.
         for (int i = 0; i < 1000; i ++)
         {
-            StorageService.instance.updateEndpointSnitch(null, "DynamicEndpointSnitchLegacyHistogram", null, null, null);
-            assertTrue(DatabaseDescriptor.getEndpointSnitch() instanceof DynamicEndpointSnitchLegacyHistogram);
+            StorageService.instance.updateEndpointSnitch(null, "DynamicEndpointSnitchLegacy", null, null, null);
+            assertTrue(DatabaseDescriptor.getEndpointSnitch() instanceof DynamicEndpointSnitchLegacy);
 
-            StorageService.instance.updateEndpointSnitch("PropertyFileSnitch", "DynamicEndpointSnitchHistogram", null, null, null);
-            assertTrue(DatabaseDescriptor.getEndpointSnitch() instanceof DynamicEndpointSnitchHistogram);
+            StorageService.instance.updateEndpointSnitch("PropertyFileSnitch", "DynamicEndpointSnitch", null, null, null);
+            assertTrue(DatabaseDescriptor.getEndpointSnitch() instanceof DynamicEndpointSnitch);
 
             // Force the thread pool to actually do something so a thread spawns
             ScheduledExecutors.getOrCreateSharedExecutor(DynamicEndpointSnitch.LATENCY_PROBE_TP_NAME).submit(() -> {});
@@ -156,8 +155,8 @@ public class StorageServiceSettingsTest
         assertTrue(DatabaseDescriptor.getEndpointSnitch() instanceof SimpleSnitch);
 
         // Able to turn DES back on
-        StorageService.instance.updateEndpointSnitch("", "DynamicEndpointSnitchLegacyHistogram", null, null, null);
-        assertTrue(DatabaseDescriptor.getEndpointSnitch() instanceof DynamicEndpointSnitchLegacyHistogram);
+        StorageService.instance.updateEndpointSnitch("", "DynamicEndpointSnitchLegacy", null, null, null);
+        assertTrue(DatabaseDescriptor.getEndpointSnitch() instanceof DynamicEndpointSnitchLegacy);
         assertEquals(UPDATE_INTERVAL, DatabaseDescriptor.getDynamicUpdateInterval());
         assertEquals(UPDATE_SAMPLE_INTERVAL, DatabaseDescriptor.getDynamicSampleUpdateInterval());
         assertEquals(BADNESS, DatabaseDescriptor.getDynamicBadnessThreshold(), 0.01);
@@ -168,8 +167,8 @@ public class StorageServiceSettingsTest
         assertTrue(DatabaseDescriptor.getEndpointSnitch() instanceof SimpleSnitch);
 
         // Able to turn DES back on
-        StorageService.instance.updateEndpointSnitch("", "DynamicEndpointSnitchLegacyHistogram", null, null, null);
-        assertTrue(DatabaseDescriptor.getEndpointSnitch() instanceof DynamicEndpointSnitchLegacyHistogram);
+        StorageService.instance.updateEndpointSnitch("", "DynamicEndpointSnitchLegacy", null, null, null);
+        assertTrue(DatabaseDescriptor.getEndpointSnitch() instanceof DynamicEndpointSnitchLegacy);
         assertEquals(UPDATE_INTERVAL, DatabaseDescriptor.getDynamicUpdateInterval());
         assertEquals(UPDATE_SAMPLE_INTERVAL, DatabaseDescriptor.getDynamicSampleUpdateInterval());
         assertEquals(BADNESS, DatabaseDescriptor.getDynamicBadnessThreshold(), 0.01);
@@ -184,19 +183,19 @@ public class StorageServiceSettingsTest
         assertTrue(((DynamicEndpointSnitch)DatabaseDescriptor.getEndpointSnitch()).subsnitch instanceof PropertyFileSnitch);
 
         // Able to change the DES wrapper
-        assertFalse(DatabaseDescriptor.getEndpointSnitch() instanceof DynamicEndpointSnitchLegacyHistogram);
-        StorageService.instance.updateEndpointSnitch("", "DynamicEndpointSnitchLegacyHistogram", null, null, null);
-        assertTrue(DatabaseDescriptor.getEndpointSnitch() instanceof DynamicEndpointSnitchLegacyHistogram);
+        assertFalse(DatabaseDescriptor.getEndpointSnitch() instanceof DynamicEndpointSnitchLegacy);
+        StorageService.instance.updateEndpointSnitch("", "DynamicEndpointSnitchLegacy", null, null, null);
+        assertTrue(DatabaseDescriptor.getEndpointSnitch() instanceof DynamicEndpointSnitchLegacy);
         assertTrue(((DynamicEndpointSnitch)DatabaseDescriptor.getEndpointSnitch()).subsnitch instanceof PropertyFileSnitch);
 
-        StorageService.instance.updateEndpointSnitch(null, "DynamicEndpointSnitchHistogram", null, null, null);
-        assertFalse(DatabaseDescriptor.getEndpointSnitch() instanceof DynamicEndpointSnitchLegacyHistogram);
+        StorageService.instance.updateEndpointSnitch(null, "DynamicEndpointSnitch", null, null, null);
+        assertFalse(DatabaseDescriptor.getEndpointSnitch() instanceof DynamicEndpointSnitchLegacy);
         assertTrue(((DynamicEndpointSnitch)DatabaseDescriptor.getEndpointSnitch()).subsnitch instanceof PropertyFileSnitch);
 
         // Able to change both at the same time
-        StorageService.instance.updateEndpointSnitch("SimpleSnitch", "DynamicEndpointSnitchLegacyHistogram", null, null, null);
+        StorageService.instance.updateEndpointSnitch("SimpleSnitch", "DynamicEndpointSnitchLegacy", null, null, null);
         assertTrue(DatabaseDescriptor.getEndpointSnitch() instanceof DynamicEndpointSnitch);
-        assertTrue(DatabaseDescriptor.getEndpointSnitch() instanceof DynamicEndpointSnitchLegacyHistogram);
+        assertTrue(DatabaseDescriptor.getEndpointSnitch() instanceof DynamicEndpointSnitchLegacy);
         assertTrue(((DynamicEndpointSnitch)DatabaseDescriptor.getEndpointSnitch()).subsnitch instanceof SimpleSnitch);
     }
 

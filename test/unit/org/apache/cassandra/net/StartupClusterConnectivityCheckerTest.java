@@ -208,29 +208,7 @@ public class StartupClusterConnectivityCheckerTest
         }
     }
 
-<<<<<<< HEAD
     private static class Sink implements BiPredicate<Message<?>, InetAddressAndPort>
-=======
-    private boolean checkAllConnectionTypesSeen(Sink sink)
-    {
-        boolean result = true;
-        for (InetAddressAndPort peer : peers)
-        {
-            if (peer.equals(FBUtilities.getBroadcastAddressAndPort()))
-                continue;
-            ConnectionTypeRecorder recorder = sink.seenConnectionRequests.get(peer);
-            result = recorder != null;
-            if (!result)
-                break;
-
-            result = recorder.smallMessageRequestCount > 0;
-            result &= recorder.largeMessageRequestCount > 0;
-        }
-        return result;
-    }
-
-    private static class Sink implements IMessageSink
->>>>>>> 9dd81e3e8c... Address remaining comments from Ariel
     {
         private final boolean markAliveInGossip;
         private final boolean processConnectAck;
@@ -249,19 +227,6 @@ public class StartupClusterConnectivityCheckerTest
         public boolean test(Message message, InetAddressAndPort to)
         {
             ConnectionTypeRecorder recorder = seenConnectionRequests.computeIfAbsent(to, inetAddress ->  new ConnectionTypeRecorder());
-<<<<<<< HEAD
-=======
-            if (message.connectionType == SMALL_MESSAGE)
-            {
-                Assert.assertFalse(recorder.smallMessageRequestCount > 1);
-                recorder.smallMessageRequestCount += 1;
-            }
-            else
-            {
-                Assert.assertFalse(recorder.largeMessageRequestCount > 1);
-                recorder.largeMessageRequestCount += 1;
-            }
->>>>>>> 9dd81e3e8c... Address remaining comments from Ariel
 
             if (!aliveHosts.contains(to))
                 return false;

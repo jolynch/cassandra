@@ -17,8 +17,12 @@
  */
 package org.apache.cassandra.net;
 
+import java.util.Collections;
+import java.util.Set;
+import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
+
+import com.google.common.annotations.VisibleForTesting;
 
 import org.apache.cassandra.locator.InetAddressAndPort;
 
@@ -35,40 +39,27 @@ public class LatencySubscribers
         void receiveTiming(InetAddressAndPort address, long latency, TimeUnit unit, LatencyMeasurementType latencyMeasurementType);
     }
 
-    private volatile Subscriber subscribers;
-    private static final AtomicReferenceFieldUpdater<LatencySubscribers, Subscriber> subscribersUpdater
-        = AtomicReferenceFieldUpdater.newUpdater(LatencySubscribers.class, Subscriber.class, "subscribers");
-
-    private static Subscriber merge(Subscriber a, Subscriber b)
-    {
-        if (a == null) return b;
-        if (b == null) return a;
-        return (address, latency, unit, type) -> {
-            a.receiveTiming(address, latency, unit, type);
-            b.receiveTiming(address, latency, unit, type);
-        };
-    }
+    private final Set<Subscriber> subscribers = new CopyOnWriteArraySet<>();
 
     public void subscribe(Subscriber subscriber)
     {
-        subscribersUpdater.accumulateAndGet(this, subscriber, LatencySubscribers::merge);
+        subscribers.add(subscriber);
     }
 
-    public void add(InetAddressAndPort address, long latency, TimeUnit unit, LatencyMeasurementType type)
+    public void unsubscribe(Subscriber subscriber)
     {
-        Subscriber subscribers = this.subscribers;
-        if (subscribers != null)
-            subscribers.receiveTiming(address, latency, unit, type);
+        subscribers.remove(subscriber);
     }
 
-    /**
-     * Track latency information for the dynamic snitch
-     *
-     * @param cb      the callback associated with this message -- this lets us know if it's a message type we're interested in
-     * @param address the host that replied to the message
-     */
-    public void maybeAdd(RequestCallback cb, InetAddressAndPort address, long latency, TimeUnit unit)
+    @VisibleForTesting
+    public Set<Subscriber> getSubscribers()
     {
-        add(address, latency, unit, cb.latencyMeasurementType());
+        return Collections.unmodifiableSet(subscribers);
+    }
+
+    public void recordLatency(InetAddressAndPort address, long latency, TimeUnit unit, LatencyMeasurementType type)
+    {
+        for (Subscriber subscriber : subscribers)
+            subscriber.receiveTiming(address, latency, unit, type);
     }
 }

@@ -16,28 +16,24 @@
  * limitations under the License.
  */
 
-package org.apache.cassandra.locator.dynamicsnitch;
+package org.apache.cassandra.locator;
 
 import java.net.UnknownHostException;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
 import org.apache.cassandra.Util;
-import org.apache.cassandra.locator.DynamicEndpointSnitch;
-import org.apache.cassandra.locator.EndpointsForRange;
-import org.apache.cassandra.locator.InetAddressAndPort;
-import org.apache.cassandra.locator.ReplicaUtils;
-import org.apache.cassandra.locator.SimpleSnitch;
 import org.apache.cassandra.net.LatencyMeasurementType;
 import org.apache.cassandra.utils.FBUtilities;
 
 import static org.junit.Assert.*;
 
-public class DynamicEndpointSnitchLegacyHistogramTest
+public class DynamicEndpointSnitchLegacyTest
 {
-    private static DynamicEndpointSnitchLegacyHistogram dsnitch;
+    private static DynamicEndpointSnitchLegacy dsnitch;
     private static InetAddressAndPort[] hosts;
 
     private final static int PROBE_INTERVAL = 1000;
@@ -51,7 +47,7 @@ public class DynamicEndpointSnitchLegacyHistogramTest
             InetAddressAndPort.getByName("127.0.0.2"),
             InetAddressAndPort.getByName("127.0.0.3"),
         };
-        dsnitch = new DynamicEndpointSnitchLegacyHistogram(ss, String.valueOf(ss.hashCode()));
+        dsnitch = new DynamicEndpointSnitchLegacy(ss, String.valueOf(ss.hashCode()));
         dsnitch.applyConfigChanges(10, PROBE_INTERVAL, 0);
     }
 
@@ -74,15 +70,15 @@ public class DynamicEndpointSnitchLegacyHistogramTest
     @Test
     public void testResets()
     {
-        dsnitch.receiveTiming(hosts[1], 2, LatencyMeasurementType.READ);
-        dsnitch.receiveTiming(hosts[2], 2, LatencyMeasurementType.READ);
+        dsnitch.receiveTiming(hosts[1], 2, TimeUnit.MILLISECONDS, LatencyMeasurementType.READ);
+        dsnitch.receiveTiming(hosts[2], 2, TimeUnit.MILLISECONDS, LatencyMeasurementType.READ);
 
         for (int i = 0; i < (DynamicEndpointSnitch.MAX_PROBE_INTERVAL_MS / PROBE_INTERVAL); i ++)
         {
             dsnitch.updateSamples();
             assertTrue(dsnitch.getMeasurementsWithPort().containsKey(hosts[1]));
             assertTrue(dsnitch.getMeasurementsWithPort().containsKey(hosts[2]));
-            dsnitch.receiveTiming(hosts[1], 1, LatencyMeasurementType.READ);
+            dsnitch.receiveTiming(hosts[1], 1, TimeUnit.MILLISECONDS, LatencyMeasurementType.READ);
         }
 
         dsnitch.updateSamples();

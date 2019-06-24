@@ -19,8 +19,6 @@ package org.apache.cassandra.net;
 
 import java.nio.channels.ClosedChannelException;
 import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -319,7 +317,6 @@ public final class MessagingService extends MessagingServiceMBeanImpl
             if (to.equals(FBUtilities.getBroadcastAddressAndPort()))
                 logger.trace("Message-to-self {} going over MessagingService", message);
         }
-
         outboundSink.accept(message, to, specifyConnection);
     }
 
@@ -590,5 +587,10 @@ public final class MessagingService extends MessagingServiceMBeanImpl
     public void waitUntilListening() throws InterruptedException
     {
         inboundSockets.open().await();
+    }
+
+    public boolean isListening()
+    {
+        return inboundSockets.isListening();
     }
 }

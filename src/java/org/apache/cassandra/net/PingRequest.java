@@ -30,13 +30,13 @@ import static org.apache.cassandra.net.ConnectionType.LARGE_MESSAGES;
 /**
  * Indicates to the recipient which {@link ConnectionType} should be used for the response.
  */
-class PingRequest
+public class PingRequest
 {
-    static final PingRequest forUrgent = new PingRequest(URGENT_MESSAGES);
-    static final PingRequest forSmall  = new PingRequest(SMALL_MESSAGES);
-    static final PingRequest forLarge  = new PingRequest(LARGE_MESSAGES);
+    public static final PingRequest forUrgent = new PingRequest(URGENT_MESSAGES);
+    public static final PingRequest forSmall  = new PingRequest(SMALL_MESSAGES);
+    public static final PingRequest forLarge  = new PingRequest(LARGE_MESSAGES);
 
-    final ConnectionType connectionType;
+    public final ConnectionType connectionType;
 
     private PingRequest(ConnectionType connectionType)
     {

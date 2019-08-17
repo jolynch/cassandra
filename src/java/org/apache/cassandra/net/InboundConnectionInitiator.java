@@ -97,7 +97,7 @@ public class InboundConnectionInitiator
             pipelineInjector.accept(pipeline);
 
             // order of handlers: ssl -> logger -> handshakeHandler
-            if (settings.encryption.enabled)
+            if (settings.encryption.isEnabled())
             {
                 if (settings.encryption.optional)
                 {

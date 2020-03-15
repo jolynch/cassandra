@@ -96,7 +96,7 @@ public class LZ4Compressor implements ICompressor
             {
                 compressor = lz4Factory.highCompressor(compressionLevel);
                 // LZ4HC can be _extremely_ slow to compress, up to 10x slower
-                this.recommendedUses = ImmutableSet.of(Uses.GENERAL);;
+                this.recommendedUses = ImmutableSet.of(Uses.GENERAL);
                 break;
             }
             case LZ4_FAST_COMPRESSOR:

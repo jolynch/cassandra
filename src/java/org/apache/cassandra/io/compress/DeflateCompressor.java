@@ -23,7 +23,6 @@ import org.apache.cassandra.schema.CompressionParams;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Collections;
-import java.util.EnumSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.zip.DataFormatException;
@@ -52,7 +51,7 @@ public class DeflateCompressor implements ICompressor
 
     private final FastThreadLocal<Deflater> deflater;
     private final FastThreadLocal<Inflater> inflater;
-    private final Set<Uses> suitableUses;
+    private final Set<Uses> recommendedUses;
 
     public static DeflateCompressor create(Map<String, String> compressionOptions)
     {
@@ -78,7 +77,7 @@ public class DeflateCompressor implements ICompressor
                 return new Inflater();
             }
         };
-        suitableUses = ImmutableSet.of(Uses.GENERAL);
+        recommendedUses = ImmutableSet.of(Uses.GENERAL);
     }
 
     public Set<String> supportedOptions()
@@ -235,6 +234,6 @@ public class DeflateCompressor implements ICompressor
     @Override
     public Set<Uses> recommendedUses()
     {
-        return suitableUses;
+        return recommendedUses;
     }
 }

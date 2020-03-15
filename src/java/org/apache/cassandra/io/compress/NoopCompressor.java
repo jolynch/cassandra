@@ -21,11 +21,8 @@ package org.apache.cassandra.io.compress;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Collections;
-import java.util.EnumSet;
 import java.util.Map;
 import java.util.Set;
-
-import com.google.common.collect.ImmutableSet;
 
 /**
  * A Compressor which doesn't actually compress any data. This is useful for either non-compressible data

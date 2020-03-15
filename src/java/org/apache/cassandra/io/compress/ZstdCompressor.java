@@ -21,7 +21,6 @@ package org.apache.cassandra.io.compress;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Collections;
-import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -55,7 +54,7 @@ public class ZstdCompressor implements ICompressor
     private static final ConcurrentHashMap<Integer, ZstdCompressor> instances = new ConcurrentHashMap<>();
 
     private final int compressionLevel;
-    private final Set<Uses> suitableUses;
+    private final Set<Uses> recommendedUses;
 
     /**
      * Create a Zstd compressor with the given options
@@ -81,7 +80,7 @@ public class ZstdCompressor implements ICompressor
     private ZstdCompressor(int compressionLevel)
     {
         this.compressionLevel = compressionLevel;
-        this.suitableUses = ImmutableSet.of(Uses.GENERAL);
+        this.recommendedUses = ImmutableSet.of(Uses.GENERAL);
         logger.trace("Creating Zstd Compressor with compression level={}", compressionLevel);
     }
 
@@ -244,6 +243,6 @@ public class ZstdCompressor implements ICompressor
     @Override
     public Set<Uses> recommendedUses()
     {
-        return suitableUses;
+        return recommendedUses;
     }
 }

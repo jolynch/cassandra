@@ -40,10 +40,11 @@ public class EncryptionOptions
     public final boolean optional;
     // ClientEncryptionOptions needs to default to false for backwards compatibility while
     // ServerEncryptionOptions does not use the enabled flag at all instead using the existing
-    // internode_encryption option. Forcing private and exposing through isEnabled
-    // so users of ServerEncryptionOptions can't accedentally use this
+    // internode_encryption option. So we force this private and expose through isEnabled
+    // so users of ServerEncryptionOptions can't accidentally use this when they should use isEnabled
+    // Long term we need to refactor ClientEncryptionOptions and ServerEncyrptionOptions to be separate
     // See CASSANDRA-15262 and CASSANDRA-15146
-    private final boolean enabled;
+    private boolean enabled;
 
     public EncryptionOptions()
     {
@@ -93,8 +94,23 @@ public class EncryptionOptions
         optional = options.optional;
     }
 
+    /**
+     * Indicates if the channel should be encrypted. Client and Server uses different logic to determine this
+     *
+     * @return if the channel should be encrypted
+     */
     public boolean isEnabled() {
         return this.enabled;
+    }
+
+    /**
+     * Sets if encryption should be enabled for this channel. Note that this should only be called by
+     * the configuration parser or tests. It is public only for that purpose, mutating enabled state
+     * is probably a bad idea.
+     * @param enabled
+     */
+    public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
     }
 
     public EncryptionOptions withKeyStore(String keystore)

@@ -1066,7 +1066,7 @@ server_encryption_options:
     internode_encryption: none
     # When set to true, encrypted and unencrypted connections are allowed on the storage_port
     # This should only be true while in unencrypted or transitional operation
-    optional: false
+    optional: true
     # If enabled, will open up an encrypted listening socket on ssl_storage_port. Should only be used
     # during upgrade to 4.0; otherwise, set to false.
     enable_legacy_ssl_storage_port: false
@@ -1082,7 +1082,8 @@ server_encryption_options:
     # Verify that the host name in the certificate matches the connected host
     require_endpoint_verification: false
 
-    # More advanced defaults below:
+    # More advanced defaults
+    #
     # protocol: TLS
     # store_type: JKS
     # cipher_suites: [

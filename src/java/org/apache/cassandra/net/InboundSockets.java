@@ -189,7 +189,7 @@ class InboundSockets
     {
         InboundConnectionSettings settings = template.withDefaults();
         out.add(new InboundSocket(settings));
-        if (settings.encryption.enable_legacy_ssl_storage_port && settings.encryption.isEnabled())
+        if (settings.encryption.enable_legacy_ssl_storage_port)
             out.add(new InboundSocket(template.withLegacyDefaults()));
     }
 

@@ -764,14 +764,6 @@ public class DatabaseDescriptor
         {
             throw new ConfigurationException("Encryption must be enabled in client_encryption_options for native_transport_port_ssl", false);
         }
-
-        // internode messaging encryption options
-        if (conf.server_encryption_options.internode_encryption != InternodeEncryption.none
-            && !conf.server_encryption_options.isEnabled())
-        {
-            throw new ConfigurationException("Encryption must be enabled in server_encryption_options when using peer-to-peer security. " +
-                                            "server_encryption_options.internode_encryption = " + conf.server_encryption_options.internode_encryption, false);
-        }
         
         if (conf.max_value_size_in_mb <= 0)
             throw new ConfigurationException("max_value_size_in_mb must be positive", false);

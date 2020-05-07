@@ -1040,40 +1040,46 @@ dynamic_snitch_reset_interval_in_ms: 600000
 # until the pinned host was 20% worse than the fastest.
 dynamic_snitch_badness_threshold: 0.1
 
-# Enable or disable inter-node encryption
+# Configure server-to-server internode encryption
 #
 # JVM and netty defaults for supported SSL socket protocols and cipher suites can
 # be replaced using custom encryption options. This is not recommended
 # unless you have policies in place that dictate certain settings, or
 # need to disable vulnerable ciphers or protocols in case the JVM cannot
 # be updated.
+#
 # FIPS compliant settings can be configured at JVM level and should not
 # involve changing encryption settings here:
 # https://docs.oracle.com/javase/8/docs/technotes/guides/security/jsse/FIPS.html
 #
-# Please *NOTE* this default configuration is an _insecure_ configuration. If you need to
+# **NOTE** this default configuration is an insecure configuration. If you need to
 # enable server-to-server encryption generate server keystores (and truststores for mutual
 # authentication) per:
 # http://download.oracle.com/javase/8/docs/technotes/guides/security/jsse/JSSERefGuide.html#CreateKeystore
-# Then restart the cluster, flip optional to false, and restart the cluster again.
+# Then perform the following configuration changes:
+#
+# Step 1: Set internode_encryption=<dc|rack|all> and explicitly set optional=true. Restart all nodes
+#
+# Step 2: Set optional=false (or remove it) and if you generated truststores and want to use mutual
+# auth set require_client_auth=true. Restart all nodes
 server_encryption_options:
     # On outbound connections, determine which type of peers to securely connect to.
-    #   The available internode options are :
-    #     none : Use unencrypted connections
-    #     dc   : Use encrypted connections between datacenters but not within
-    #     rack : Use encrypted connections between racks but not within racks
+    #   The available options are :
+    #     none : Do not encrypt outgoing connections
+    #     dc   : Encrypt connections to peers in other datacenters but not within datacenters
+    #     rack : Encrypt connections to peers in other racks but not within racks
     #     all  : Always use encrypted connections
     internode_encryption: none
     # When set to true, encrypted and unencrypted connections are allowed on the storage_port
-    # This should only be true while in unencrypted or transitional operation
-    optional: true
+    # This should _only be true_ while in unencrypted or transitional operation
+    # optional defaults to true if internode_encryption is none
+    # optional: true
     # If enabled, will open up an encrypted listening socket on ssl_storage_port. Should only be used
     # during upgrade to 4.0; otherwise, set to false.
     enable_legacy_ssl_storage_port: false
     # Set to a valid keystore if internode_encryption is dc, rack or all
     keystore: conf/.keystore
     keystore_password: cassandra
-
     # Verify peer server certificates
     require_client_auth: false
     # Set to a valid trustore if require_client_auth is true
@@ -1081,9 +1087,7 @@ server_encryption_options:
     truststore_password: cassandra
     # Verify that the host name in the certificate matches the connected host
     require_endpoint_verification: false
-
-    # More advanced defaults
-    #
+    # More advanced defaults:
     # protocol: TLS
     # store_type: JKS
     # cipher_suites: [
@@ -1093,19 +1097,25 @@ server_encryption_options:
     #   TLS_RSA_WITH_AES_256_CBC_SHA
     # ]
 
-# Enable or disable client-to-server encryption.
+# Configure client-to-server encryption.
 #
-# Please *NOTE* this default configuration is an _insecure_ configuration. If you need to
+# **NOTE** this default configuration is an insecure configuration. If you need to
 # enable client-to-server encryption generate server keystores (and truststores for mutual
 # authentication) per:
 # http://download.oracle.com/javase/8/docs/technotes/guides/security/jsse/JSSERefGuide.html#CreateKeystore
-# Then restart the cluster, flip optional to false, and restart the cluster again.
+# Then perform the following configuration changes:
+#
+# Step 1: Set enabled=true and explicitly set optional=true. Restart all nodes
+#
+# Step 2: Set optional=false (or remove it) and if you generated truststores and want to use mutual
+# auth set require_client_auth=true. Restart all nodes
 client_encryption_options:
     # Enable client-to-server encryption
     enabled: false
     # When set to true, encrypted and unencrypted connections are allowed on the native_transport_port
-    # This should only be true while in unencrypted or transitional operation
-    optional: true
+    # This should _only be true_ while in unencrypted or transitional operation
+    # optional defaults to true when enabled is false, and false when enabled is true.
+    # optional: true
     # Set keystore and keystore_password to valid keystores if enabled is true
     keystore: conf/.keystore
     keystore_password: cassandra
@@ -1114,8 +1124,7 @@ client_encryption_options:
     # Set trustore and truststore_password if require_client_auth is true
     # truststore: conf/.truststore
     # truststore_password: cassandra
-
-    # More advanced defaults below:
+    # More advanced defaults:
     # protocol: TLS
     # store_type: JKS
     # cipher_suites: [
@@ -1124,6 +1133,7 @@ client_encryption_options:
     #   TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA, TLS_RSA_WITH_AES_128_GCM_SHA256, TLS_RSA_WITH_AES_128_CBC_SHA,
     #   TLS_RSA_WITH_AES_256_CBC_SHA
     # ]
+
 # internode_compression controls whether traffic between nodes is
 # compressed.
 # Can be:

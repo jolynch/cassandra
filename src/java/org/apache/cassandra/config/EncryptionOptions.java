@@ -37,7 +37,7 @@ public class EncryptionOptions
     public final String store_type;
     public final boolean require_client_auth;
     public final boolean require_endpoint_verification;
-    public final boolean optional;
+    public final Boolean optional;
     // ClientEncryptionOptions needs to default to false for backwards compatibility while
     // ServerEncryptionOptions does not use the enabled flag at all instead using the existing
     // internode_encryption option. So we force this private and expose through isEnabled
@@ -62,7 +62,7 @@ public class EncryptionOptions
         optional = true;
     }
 
-    public EncryptionOptions(String keystore, String keystore_password, String truststore, String truststore_password, List<String> cipher_suites, String protocol, String algorithm, String store_type, boolean require_client_auth, boolean require_endpoint_verification, boolean enabled, boolean optional)
+    public EncryptionOptions(String keystore, String keystore_password, String truststore, String truststore_password, List<String> cipher_suites, String protocol, String algorithm, String store_type, boolean require_client_auth, boolean require_endpoint_verification, boolean enabled, Boolean optional)
     {
         this.keystore = keystore;
         this.keystore_password = keystore_password;
@@ -75,7 +75,14 @@ public class EncryptionOptions
         this.require_client_auth = require_client_auth;
         this.require_endpoint_verification = require_endpoint_verification;
         this.enabled = enabled;
-        this.optional = optional;
+        if (optional != null) {
+            this.optional = optional;
+        } else {
+            // If someone is asking for an _insecure_ connection and not explicitly telling us to refuse
+            // encrypted connections we assume they would like to be able to transition to encrypted connections
+            // in the future.
+            this.optional = !enabled;
+        }
     }
 
     public EncryptionOptions(EncryptionOptions options)
@@ -91,7 +98,14 @@ public class EncryptionOptions
         require_client_auth = options.require_client_auth;
         require_endpoint_verification = options.require_endpoint_verification;
         enabled = options.enabled;
-        optional = options.optional;
+        if (options.optional != null) {
+            optional = options.optional;
+        } else {
+            // If someone is asking for an _insecure_ connection and not explicitly telling us to refuse
+            // encrypted connections we assume they would like to be able to transition to encrypted connections
+            // in the future.
+            optional = !enabled;
+        }
     }
 
     /**
@@ -270,7 +284,7 @@ public class EncryptionOptions
             this.enable_legacy_ssl_storage_port = false;
         }
 
-        public ServerEncryptionOptions(String keystore, String keystore_password, String truststore, String truststore_password, List<String> cipher_suites, String protocol, String algorithm, String store_type, boolean require_client_auth, boolean require_endpoint_verification, boolean optional, InternodeEncryption internode_encryption, boolean enable_legacy_ssl_storage_port)
+        public ServerEncryptionOptions(String keystore, String keystore_password, String truststore, String truststore_password, List<String> cipher_suites, String protocol, String algorithm, String store_type, boolean require_client_auth, boolean require_endpoint_verification, Boolean optional, InternodeEncryption internode_encryption, boolean enable_legacy_ssl_storage_port)
         {
             super(keystore, keystore_password, truststore, truststore_password, cipher_suites, protocol, algorithm, store_type, require_client_auth, require_endpoint_verification, internode_encryption != InternodeEncryption.none, optional);
             this.internode_encryption = internode_encryption;

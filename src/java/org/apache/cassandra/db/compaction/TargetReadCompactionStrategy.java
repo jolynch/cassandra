@@ -36,10 +36,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.PartitionPosition;
 import org.apache.cassandra.db.lifecycle.LifecycleTransaction;
 import org.apache.cassandra.db.lifecycle.SSTableIntervalTree;
 import org.apache.cassandra.db.lifecycle.View;
+import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
@@ -58,6 +60,8 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
     protected volatile int estimatedRemainingTasks;
     protected long targetSSTableSize;
     protected long lastMajorCompactionTime;
+    protected volatile Pair<Integer, SSTableIntervalTree> cachedTree;
+    protected volatile Pair<Integer, List<Pair<List<SSTableReader>, Double>>> cachedScores;
 
     /** Used to encapsulate a sorted run (aka "Level" of sstables)
      */
@@ -84,6 +88,8 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         this.targetReadOptions = new TargetReadCompactionStrategyOptions(options);
         this.targetSSTableSize = targetReadOptions.targetSSTableSize;
         this.lastMajorCompactionTime = 0;
+        this.cachedTree = Pair.create(Collections.emptySet().hashCode(), SSTableIntervalTree.empty());
+        this.cachedScores = Pair.create(Collections.emptySet().hashCode(), Collections.emptyList());
     }
 
     private List<SSTableReader> findNewlyFlushedSSTables(Set<SSTableReader> candidates)
@@ -132,6 +138,48 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         return result.stream().limit(maxThreshold).collect(Collectors.toList());
     }
 
+    @VisibleForTesting
+    static List<AbstractBounds<PartitionPosition>> findCoveringRanges(Iterable<SSTableReader> sstables) {
+        List<SSTableReader> sortedByFirst = Lists.newArrayList(sstables);
+        sortedByFirst.sort(Comparator.comparing(o -> o.first));
+
+        List<AbstractBounds<PartitionPosition>> bounds = new ArrayList<>();
+        DecoratedKey first = null, last = null;
+        /*
+        normalize the intervals covered by the sstables
+        assume we have sstables like this (brackets representing first/last key in the sstable);
+        [   ] [   ]    [   ]   [  ]
+           [   ]         [       ]
+        then we can, instead of searching the interval tree 6 times, normalize the intervals and
+        only query the tree 2 times, for these intervals;
+        [         ]    [          ]
+         */
+        for (SSTableReader sstable : sortedByFirst)
+        {
+            if (first == null)
+            {
+                first = sstable.first;
+                last = sstable.last;
+            }
+            else
+            {
+                if (sstable.first.compareTo(last) <= 0) // we do overlap
+                {
+                    if (sstable.last.compareTo(last) > 0)
+                        last = sstable.last;
+                }
+                else
+                {
+                    bounds.add(AbstractBounds.bounds(first, true, last, true));
+                    first = sstable.first;
+                    last = sstable.last;
+                }
+            }
+        }
+        bounds.add(AbstractBounds.bounds(first, true, last, true));
+        return bounds;
+    }
+
     private List<SSTableReader> findOverlappingSSTables(Set<SSTableReader> compactionCandidates)
     {
         int maxThreshold = cfs.getMaximumCompactionThreshold();
@@ -140,48 +188,37 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         Set<SSTableReader> overlapCandidates = compactionCandidates.stream()
                                                                    .filter(s -> s.getSSTableLevel() > 0)
                                                                    .collect(Collectors.toSet());
+
         if (overlapCandidates.isEmpty()) return Collections.emptyList();
 
-        SSTableIntervalTree tree = SSTableIntervalTree.build(overlapCandidates);
-
-        List<SSTableReader> sortedByFirst = Lists.newArrayList(overlapCandidates);
-        sortedByFirst.sort(Comparator.comparing(o -> o.first));
-
-        PartitionPosition last = tree.min();
-        List<Range<PartitionPosition>> coveringRanges = new ArrayList<>();
-
-        for (SSTableReader sstable : sortedByFirst)
-        {
-            // Wait until we get past the last covering range
-            if (sstable.last.compareTo(last) < 0)
-                continue;
-
-            List<SSTableReader> overlapping = new ArrayList<>();
-            for (Range<PartitionPosition> range: new Range<>(sstable.first, sstable.last).unwrap()) {
-                overlapping.addAll(View.sstablesInBounds(range.left, range.right, tree));
-            }
-
-            if (overlapping.size() <= 1)
+        // Best effort caching of scores and trees ... if we end up doing it twice it is not a big deal.
+        // we're just trying to avoid re-evaluating overlaps all the time if the sstables haven't changed
+        List<Pair<List<SSTableReader>, Double>> candidateScores;
+        if (overlapCandidates.hashCode() == cachedScores.left) {
+            candidateScores = cachedScores.right;
+            if (candidateScores.size() > 0)
             {
-                last = sstable.last;
-                logger.trace("Skipping single overlapping range covered by sstable " + sstable.descriptor.generation);
-                continue;
+                logger.debug("TRCS found {} candidates, yielding {}", candidateScores.size(), candidateScores.get(0));
+                return candidateScores.get(0).left;
             }
-
-            // We don't deal with unwrapping here because the covering range
-            // search below will include anything where first overlaps
-            PartitionPosition min = sstable.first;
-            PartitionPosition max = sstable.last;
-            for (SSTableReader overlap : overlapping)
+            else
             {
-                if (overlap.first.compareTo(min) < 0)
-                    min = overlap.first;
-                if (overlap.last.compareTo(max) > 0)
-                    max = overlap.last;
+                logger.trace("TRCS yielded zero overlap candidates");
+                return Collections.emptyList();
             }
-            coveringRanges.add(new Range<>(min, max));
-            last = max;
         }
+        else
+        {
+            candidateScores = new ArrayList<>();
+        }
+
+        // Only compute a new interval tree if the sstables in sorted runs has actually changed.
+        if (overlapCandidates.hashCode() != cachedTree.left)
+        {
+            cachedTree = Pair.create(overlapCandidates.hashCode(), SSTableIntervalTree.build(overlapCandidates));
+        }
+        SSTableIntervalTree tree = cachedTree.right;
+        List<AbstractBounds<PartitionPosition>> coveringRanges = findCoveringRanges(overlapCandidates);
 
         logger.trace("TRCS found {} covering ranges", coveringRanges.size());
 
@@ -200,14 +237,13 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         //   We are interested in compacting range (1, 4] and (4, 8] between Level=23
         //   and Level=24 because they have similar density and would yield read
         //   per read reduction while costing little in compaction.
-        List<Pair<List<SSTableReader>, Double>> candidateScores = new ArrayList<>();
         Set<SSTableReader> fullCompactionSStables = new HashSet<>();
         for (int i = 0; i < coveringRanges.size(); i++)
         {
-            Range<PartitionPosition> coveringRange = coveringRanges.get(i);
+            AbstractBounds<PartitionPosition> coveringRange = coveringRanges.get(i);
             Map<Integer, Set<SSTableReader>> sortedRuns = new HashMap<>();
             Set<SSTableReader> sortedRun;
-            for (Range<PartitionPosition> unwrapped : coveringRange.unwrap())
+            for (AbstractBounds<PartitionPosition> unwrapped : coveringRange.unwrap())
             {
                 List<SSTableReader> overlappingInRange = View.sstablesInBounds(unwrapped.left, unwrapped.right, tree);
                 for (SSTableReader sstable : overlappingInRange)
@@ -236,7 +272,6 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
                 continue;
 
             List<Pair<SortedRun, Long>> runs = createSortedRunDensities(sortedRuns);
-
             List<List<SortedRun>> buckets = getBuckets(runs,
                                                        targetReadOptions.tierBucketHigh,
                                                        targetReadOptions.tierBucketLow);
@@ -274,13 +309,16 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         Comparator<Pair<List<SSTableReader>, Double>> c = Comparator.<Pair<List<SSTableReader>, Double>>
                                                                     comparingDouble(s -> s.right).reversed();
         candidateScores.sort(c);
+        cachedScores = Pair.create(overlapCandidates.hashCode(), candidateScores);
         estimatedRemainingTasks = candidateScores.size();
 
         if (candidateScores.size() > 0)
         {
             logger.debug("TRCS found {} candidates, yielding {}", candidateScores.size(), candidateScores.get(0));
             return candidateScores.get(0).left;
-        } else {
+        }
+        else
+        {
             logger.trace("TRCS yielded zero overlap candidates");
             return Collections.emptyList();
         }
@@ -481,7 +519,7 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         }
 
         // The Primary "Target Read" part of the algorithm. Now we consider levels to be sorted runs
-        // and look for overlapping sstables, bucketed by density (keys / |range|)
+        // and look for overlapping runs, bucketed by density (keys / |range|)
         sstablesToCompact = findOverlappingSSTables(candidatesSet);
         if (sstablesToCompact.size() > 1)
         {
@@ -491,7 +529,7 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         }
 
         // If we have exceeded the target number of SSTables, re-write sorted runs into larger files
-        // This keeps the number of tables reasonable even as datasets scale to TiBs of data
+        // to keep the number of tables reasonable even as datasets scale to TiBs of data
         if (candidatesSet.size() > targetReadOptions.maxSSTableCount)
         {
             sstablesToCompact = findSmallSSTables(candidatesSet);

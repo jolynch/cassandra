@@ -546,7 +546,7 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
                 // At this point we need to "promote" this to a proper sorted run identifier
                 level = getLevel(sstablesToCompact);
 
-                logger.debug("TRCS normalization compaction yielding {} sstables of size {}mb. Achieving compaction ratio of: {}",
+                logger.debug("TRCS normalization compaction yielding {} sstables of size {}MiB with ratio {}",
                              totalSize / targetSize, targetSize / (1024 * 1024), ratio);
             }
 

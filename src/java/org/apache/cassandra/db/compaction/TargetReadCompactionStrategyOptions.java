@@ -28,8 +28,8 @@ public final class TargetReadCompactionStrategyOptions
     protected static final long DEFAULT_SPLIT_RANGE = 16L;
     protected static final long DEFAULT_TARGET_SSTABLE_SIZE = 1024L;
     protected static final long DEFAULT_MAX_COUNT = 2000;
-    protected static final long DEFAULT_TARGET_READ = 4;
-    protected static final long DEFAULT_MAX_READ_PER_READ = 12;
+    protected static final int DEFAULT_TARGE_READ_PER_READ = 4;
+    protected static final int DEFAULT_MAX_READ_PER_READ = 8;
     protected static final double DEFAULT_TIER_BUCKET_LOW = 0.25;
     protected static final double DEFAULT_TIER_BUCKET_HIGH = 1.75;
 
@@ -45,9 +45,9 @@ public final class TargetReadCompactionStrategyOptions
     protected final long minSSTableSize;
     protected final long splitRange;
     protected final long targetSSTableSize;
-    protected final long targetReadPerRead;
+    protected final int targetReadPerRead;
     protected final long maxSSTableCount;
-    protected final long maxReadPerRead;
+    protected final int maxReadPerRead;
     protected final double tierBucketLow;
     protected final double tierBucketHigh;
 
@@ -56,9 +56,9 @@ public final class TargetReadCompactionStrategyOptions
         minSSTableSize = parseLong(options, MIN_SSTABLE_SIZE_KEY, DEFAULT_MIN_SSTABLE_SIZE) * 1024L * 1024L;
         splitRange = parseLong(options, SPLIT_RANGE_KEY, DEFAULT_SPLIT_RANGE);
         targetSSTableSize = parseLong(options, TARGET_SSTABLE_SIZE, DEFAULT_TARGET_SSTABLE_SIZE) * 1024L * 1024L;
-        targetReadPerRead = parseLong(options, TARGET_READ_PER_READ, DEFAULT_TARGET_READ);
+        targetReadPerRead = parseInt(options, TARGET_READ_PER_READ, DEFAULT_TARGE_READ_PER_READ);
         maxSSTableCount = parseLong(options, MAX_SSTABLE_COUNT, DEFAULT_MAX_COUNT);
-        maxReadPerRead = parseLong(options, MAX_READ_PER_READ, DEFAULT_MAX_READ_PER_READ);
+        maxReadPerRead = parseInt(options, MAX_READ_PER_READ, DEFAULT_MAX_READ_PER_READ);
         tierBucketLow = parseDouble(options, TIER_BUCKET_LOW, DEFAULT_TIER_BUCKET_LOW);
         tierBucketHigh = parseDouble(options, TIER_BUCKET_HIGH, DEFAULT_TIER_BUCKET_HIGH);
     }
@@ -66,6 +66,19 @@ public final class TargetReadCompactionStrategyOptions
     public TargetReadCompactionStrategyOptions()
     {
         this(Collections.emptyMap());
+    }
+
+    private static int parseInt(Map<String, String> options, String key, int defaultValue) throws ConfigurationException
+    {
+        String optionValue = options.get(key);
+        try
+        {
+            return optionValue == null ? defaultValue : Integer.parseInt(optionValue);
+        }
+        catch (NumberFormatException e)
+        {
+            throw new ConfigurationException(String.format("%s is not a parsable int for %s", optionValue, key), e);
+        }
     }
 
     private static long parseLong(Map<String, String> options, String key, long defaultValue) throws ConfigurationException
@@ -128,13 +141,13 @@ public final class TargetReadCompactionStrategyOptions
             throw new ConfigurationException(String.format("%s must be non negative: %d", MAX_SSTABLE_COUNT, maxCount));
         }
 
-        long targetRead = parseLong(options, TARGET_READ_PER_READ, DEFAULT_TARGET_READ);
+        int targetRead = parseInt(options, TARGET_READ_PER_READ, DEFAULT_TARGE_READ_PER_READ);
         if (targetRead < 0)
         {
             throw new ConfigurationException(String.format("%s must be non negative: %d", TARGET_READ_PER_READ, targetRead));
         }
 
-        long maxRead = parseLong(options, MAX_READ_PER_READ, DEFAULT_MAX_READ_PER_READ);
+        int maxRead = parseInt(options, MAX_READ_PER_READ, DEFAULT_MAX_READ_PER_READ);
         if (maxRead < 0)
         {
             throw new ConfigurationException(String.format("%s must be non negative: %d", MAX_READ_PER_READ, maxRead));

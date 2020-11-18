@@ -24,16 +24,16 @@ import org.apache.cassandra.exceptions.ConfigurationException;
 
 public final class TargetReadCompactionStrategyOptions
 {
-    protected static final long DEFAULT_MIN_SSTABLE_SIZE = 1L;
-    protected static final long DEFAULT_SPLIT_RANGE = 16L;
+    protected static final int DEFAULT_SPLIT_RANGE = 16;
     protected static final long DEFAULT_TARGET_SSTABLE_SIZE = 1024L;
     protected static final int  DEFAULT_MIN_THRESHOLD_LEVELS = 2;
     protected static final int DEFAULT_TARGET_READ_PER_READ = 4;
-    protected static final long DEFAULT_TARGET_REWRITE_INTERVAL_SECONDS = 60 * 60;
+    protected static final long DEFAULT_TARGET_REWRITE_INTERVAL_SECONDS = 60 * 60; // 1 hour
     protected static final int DEFAULT_MAX_READ_PER_READ = 12;
     protected static final long DEFAULT_MAX_COUNT = 2000;
-    protected static final double DEFAULT_TIER_BUCKET_LOW = 0.25;
-    protected static final double DEFAULT_TIER_BUCKET_HIGH = 1.75;
+    protected static final int DEFAULT_MAX_LEVEL_AGE_SECONDS = 60 * 60 * 24 * 10;  // 10 days
+    protected static final double DEFAULT_LEVEL_BUCKET_LOW = 0.5;
+    protected static final double DEFAULT_LEVEL_BUCKET_HIGH = 1.5;
 
     protected static final String SPLIT_RANGE_KEY = "split_range";
     protected static final String MIN_THRESHOLD_LEVELS = "min_threshold_levels";
@@ -42,30 +42,33 @@ public final class TargetReadCompactionStrategyOptions
     protected static final String TARGET_REWRITE_INTERVAL_SECS = "target_rewrite_interval_in_seconds";
     protected static final String MAX_READ_PER_READ = "max_read_per_read";
     protected static final String MAX_SSTABLE_COUNT = "max_sstable_count";
-    protected static final String TIER_BUCKET_LOW = "tier_bucket_low";
-    protected static final String TIER_BUCKET_HIGH = "tier_bucket_high";
+    protected static final String MAX_LEVEL_AGE_SECS = "max_level_age_in_seconds";
+    protected static final String LEVEL_BUCKET_LOW = "level_bucket_low";
+    protected static final String LEVEL_BUCKET_HIGH = "level_bucket_high";
 
-    protected final long splitRange;
+    protected final int splitRange;
     protected final int minThresholdLevels;
     protected final long targetSSTableSizeBytes;
     protected final int targetReadPerRead;
     protected final long targetRewriteIntervalSeconds;
     protected final long maxSSTableCount;
     protected final int maxReadPerRead;
-    protected final double tierBucketLow;
-    protected final double tierBucketHigh;
+    protected final int maxLevelAgeSeconds;
+    protected final double levelBucketLow;
+    protected final double levelBucketHigh;
 
     public TargetReadCompactionStrategyOptions(Map<String, String> options)
     {
-        splitRange = parseLong(options, SPLIT_RANGE_KEY, DEFAULT_SPLIT_RANGE);
+        splitRange = parseInt(options, SPLIT_RANGE_KEY, DEFAULT_SPLIT_RANGE);
         minThresholdLevels = parseInt(options, MIN_THRESHOLD_LEVELS, DEFAULT_MIN_THRESHOLD_LEVELS);
         targetSSTableSizeBytes = parseLong(options, TARGET_SSTABLE_SIZE, DEFAULT_TARGET_SSTABLE_SIZE) * 1024L * 1024L;
         targetReadPerRead = parseInt(options, TARGET_READ_PER_READ, DEFAULT_TARGET_READ_PER_READ);
         targetRewriteIntervalSeconds = parseLong(options, TARGET_REWRITE_INTERVAL_SECS, DEFAULT_TARGET_REWRITE_INTERVAL_SECONDS);
         maxSSTableCount = parseLong(options, MAX_SSTABLE_COUNT, DEFAULT_MAX_COUNT);
         maxReadPerRead = parseInt(options, MAX_READ_PER_READ, DEFAULT_MAX_READ_PER_READ);
-        tierBucketLow = parseDouble(options, TIER_BUCKET_LOW, DEFAULT_TIER_BUCKET_LOW);
-        tierBucketHigh = parseDouble(options, TIER_BUCKET_HIGH, DEFAULT_TIER_BUCKET_HIGH);
+        maxLevelAgeSeconds = parseInt(options, MAX_LEVEL_AGE_SECS, DEFAULT_MAX_LEVEL_AGE_SECONDS);
+        levelBucketLow = parseDouble(options, LEVEL_BUCKET_LOW, DEFAULT_LEVEL_BUCKET_LOW);
+        levelBucketHigh = parseDouble(options, LEVEL_BUCKET_HIGH, DEFAULT_LEVEL_BUCKET_HIGH);
     }
 
     public TargetReadCompactionStrategyOptions()
@@ -114,13 +117,13 @@ public final class TargetReadCompactionStrategyOptions
 
     public static Map<String, String> validateOptions(Map<String, String> options, Map<String, String> uncheckedOptions) throws ConfigurationException
     {
-        long splitRange = parseLong(options, SPLIT_RANGE_KEY, DEFAULT_SPLIT_RANGE);
+        int splitRange = parseInt(options, SPLIT_RANGE_KEY, DEFAULT_SPLIT_RANGE);
         if (splitRange <= 0)
         {
             throw new ConfigurationException(String.format("%s must be positive: %d", SPLIT_RANGE_KEY, splitRange));
         }
 
-        long targetSSTableSize = parseLong(options, TARGET_SSTABLE_SIZE, DEFAULT_MIN_SSTABLE_SIZE) * 1024 * 1024;
+        long targetSSTableSize = parseLong(options, TARGET_SSTABLE_SIZE, DEFAULT_TARGET_SSTABLE_SIZE) * 1024 * 1024;
         if (targetSSTableSize < 0)
         {
             throw new ConfigurationException(String.format("%s must be non negative: %d", TARGET_SSTABLE_SIZE, targetSSTableSize));
@@ -134,15 +137,15 @@ public final class TargetReadCompactionStrategyOptions
         }
 
         long maxCount = parseLong(options, MAX_SSTABLE_COUNT, DEFAULT_MAX_COUNT);
-        if (maxCount < 0)
+        if (maxCount < 50)
         {
-            throw new ConfigurationException(String.format("%s must be non negative: %d", MAX_SSTABLE_COUNT, maxCount));
+            throw new ConfigurationException(String.format("%s must be larger than 10: %d", MAX_SSTABLE_COUNT, maxCount));
         }
 
         int targetRead = parseInt(options, TARGET_READ_PER_READ, DEFAULT_TARGET_READ_PER_READ);
-        if (targetRead < 0)
+        if (targetRead < 2)
         {
-            throw new ConfigurationException(String.format("%s must be non negative: %d", TARGET_READ_PER_READ, targetRead));
+            throw new ConfigurationException(String.format("%s cannot be smaller than 2: %d", TARGET_READ_PER_READ, targetRead));
         }
 
         int minThresholdLevels = parseInt(options, MIN_THRESHOLD_LEVELS, DEFAULT_MIN_THRESHOLD_LEVELS);
@@ -154,9 +157,9 @@ public final class TargetReadCompactionStrategyOptions
         }
 
         int maxRead = parseInt(options, MAX_READ_PER_READ, DEFAULT_MAX_READ_PER_READ);
-        if (maxRead < 0)
+        if (maxRead < 2)
         {
-            throw new ConfigurationException(String.format("%s must be non negative: %d", MAX_READ_PER_READ, maxRead));
+            throw new ConfigurationException(String.format("%s cannot be smaller than 2: %d", MAX_READ_PER_READ, maxRead));
         }
 
         if (maxRead < targetRead)
@@ -166,12 +169,19 @@ public final class TargetReadCompactionStrategyOptions
                                                            maxRead, targetRead));
         }
 
+        int maxLevelAgeSeconds = parseInt(options, MAX_LEVEL_AGE_SECS, DEFAULT_MAX_LEVEL_AGE_SECONDS);
+        if (maxLevelAgeSeconds < 0)
+        {
+            throw new ConfigurationException(String.format("%s must be non negative: %d", MAX_LEVEL_AGE_SECS, maxLevelAgeSeconds));
+        }
+
         uncheckedOptions.remove(SPLIT_RANGE_KEY);
         uncheckedOptions.remove(TARGET_SSTABLE_SIZE);
         uncheckedOptions.remove(TARGET_READ_PER_READ);
         uncheckedOptions.remove(TARGET_REWRITE_INTERVAL_SECS);
         uncheckedOptions.remove(MAX_SSTABLE_COUNT);
         uncheckedOptions.remove(MAX_READ_PER_READ);
+        uncheckedOptions.remove(MAX_LEVEL_AGE_SECS);
 
         return uncheckedOptions;
     }

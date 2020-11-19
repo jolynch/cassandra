@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
@@ -56,11 +57,13 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
 {
     private static final Logger logger = LoggerFactory.getLogger(TargetReadCompactionStrategy.class);
 
+    protected final static Double MAJOR_COMPACTION = Double.MAX_VALUE;
+
     protected TargetReadCompactionStrategyOptions targetReadOptions;
     protected volatile int estimatedRemainingTasks;
     protected long targetSSTableSizeBytes;
     protected volatile long majorCompactionGoalSetAt;
-    protected AtomicLong nextMajorCompactionTime = new AtomicLong(0);
+    protected volatile long nextMajorCompactionTime = 0;
     protected volatile Pair<Integer, SSTableIntervalTree> cachedTree;
     protected volatile Pair<Integer, List<Pair<List<SSTableReader>, Double>>> cachedScores;
 
@@ -247,7 +250,7 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         List<AbstractBounds<PartitionPosition>> coveringRanges = findCoveringRanges(overlapCandidates);
 
         logger.trace("TRCS found {} covering ranges", coveringRanges.size());
-        logger.trace("TRCS current time of {} and next major compaction allowed at {}", now, nextMajorCompactionTime.get());
+        logger.trace("TRCS current time of {} and next major compaction allowed after {}", now, nextMajorCompactionTime);
         // 1. Take covering ranges, which should mostly align with freshly normalized SSTables, and
         //    find overlapping levels (SortedRuns) with those ranges.
         // 2. When we have more than targetReadPerRead sorted runs, try combining low density
@@ -263,7 +266,6 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         //   In this case we are interested in compacting Level=23 and
         //   and Level=24 because they have similar density and would yield read
         //   per read reduction while costing little in compaction.
-        Set<SSTableReader> fullCompactionSStables = new HashSet<>();
         for (int i = 0; i < coveringRanges.size(); i++)
         {
             AbstractBounds<PartitionPosition> coveringRange = coveringRanges.get(i);
@@ -276,64 +278,66 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
                 {
                     sortedRun = sortedRuns.computeIfAbsent(sstable.getSSTableLevel(), k -> new HashSet<>());
                     sortedRun.add(sstable);
-                    // Check for a signaled major compaction
-                    long createdAt = sstable.getCreationTimeFor(Component.DATA);
-                    if (createdAt < majorCompactionGoalSetAt && now > nextMajorCompactionTime.get()) {
-                        fullCompactionSStables.add(sstable);
-                    }
-                }
-                // We have a full compaction going on, just yield the qualifying sstables from ranges
-                // in their entirety. It does seem like we might want to involve more sstables than
-                // just the old ones ...
-                //
-                // Intentionally do this with smaller pieces of the data so that we don't need
-                // 2x additional space to achieve full compaction (should need about ~1/splitrange)
-                // assuming that the targetRewriteIntervalSeconds is long enough
-                if (fullCompactionSStables.size() > 1) {
-                    logger.debug("TRCS found full compaction candidates {}", fullCompactionSStables);
-                    estimatedRemainingTasks = coveringRanges.size() - i;
-                    nextMajorCompactionTime.addAndGet((targetReadOptions.targetRewriteIntervalSeconds * 1000) /
-                                                      targetReadOptions.splitRange);
-                    return new ArrayList<>(fullCompactionSStables);
                 }
             }
             List<Pair<SortedRun, Long>> runs = createSortedRunDensities(sortedRuns);
 
-            // Edge case where we have some really old (probably really dense) sorted runs. If we
-            // detect such runs, yield the oldest run and all youngest runs up to that size (essentially a "full"
-            // compaction across the runs). We choose the youngest because we are probably trying to get updates
+            // Handles full compaction and the edge case where we have some really old (probably really dense) sorted
+            // runs. If we detect such runs, yield the oldest run and all youngest runs up to that size (essentially a
+            // "full" compaction across the runs). We choose the youngest because we are probably trying to get updates
             // from the younger tables (e.g. deletes or updates) into the older ones.
             runs.sort(Comparator.comparing(r -> r.left.createdAt));
             if (runs.size() > 1)
             {
-                SortedRun oldest = runs.get(runs.size() - 1).left;
-                if (targetReadOptions.maxLevelAgeSeconds != 0 && now > nextMajorCompactionTime.get() &&
-                    (oldest.createdAt < (now - targetReadOptions.maxLevelAgeSeconds * 1000)))
+                int pivot = runs.size() - 1;
+                List<SortedRun> bucket = new ArrayList<>();
+
+                while (pivot > 0 &&
+                       now > nextMajorCompactionTime &&
+                       runs.get(pivot).left.createdAt < majorCompactionGoalSetAt) {
+                    // We have a signaled full compaction, just yield the qualifying sorted runs
+                    // in their entirety.
+                    bucket.add(runs.get(pivot).left);
+                    pivot--;
+                }
+
+                if (bucket.size() > 1) {
+                    logger.debug("TRCS found full compaction candidates: {}", bucket);
+                } else {
+                    SortedRun oldest = runs.get(pivot).left;
+                    if (targetReadOptions.maxLevelAgeSeconds > 0 &&
+                        now > nextMajorCompactionTime &&
+                        (oldest.createdAt < (now - (targetReadOptions.maxLevelAgeSeconds * 1000))))
+                    {
+                        bucket.add(oldest);
+                        logger.debug("TRCS mixing old run {} with newer data due to {} of {}. If this is undesirable" +
+                                     "set {} to 0.",
+                                     oldest,
+                                     TargetReadCompactionStrategyOptions.MAX_LEVEL_AGE_SECS,
+                                     targetReadOptions.maxLevelAgeSeconds,
+                                     TargetReadCompactionStrategyOptions.MAX_LEVEL_AGE_SECS);
+                    }
+                }
+
+                if (bucket.size() > 1)
                 {
-                    List<SortedRun> bucket = new ArrayList<>();
-                    long size = oldest.sizeInBytes;
+                    long size = bucket.stream().mapToLong(s -> s.sizeInBytes).sum();
                     int runIndex = 0;
-                    while (size > 0 && runIndex < (runs.size() - 1))
+                    while (size > 0 && runIndex < pivot)
                     {
                         bucket.add(runs.get(runIndex).left);
                         size -= runs.get(runIndex).left.sizeInBytes;
                         runIndex++;
                     }
-                    logger.debug("TRCS mixing old run {} with newer data due to {} of {}. If this is undesirable" +
-                                 "set {} to 0.",
-                                 oldest,
-                                 TargetReadCompactionStrategyOptions.MAX_LEVEL_AGE_SECS,
-                                 targetReadOptions.maxLevelAgeSeconds,
-                                 TargetReadCompactionStrategyOptions.MAX_LEVEL_AGE_SECS);
-                    nextMajorCompactionTime.addAndGet((targetReadOptions.targetRewriteIntervalSeconds * 1000) /
-                                                      targetReadOptions.splitRange);
-                    // Basically short circuit scoring and just yield the compaction
-                    return createCandidate(bucket, bucket.size());
+                    candidateScores.add(Pair.create(
+                        createCandidate(bucket, bucket.size()),
+                        MAJOR_COMPACTION
+                    ));
                 }
             }
 
             // If we don't have enough sorted ranges to even hit the target read per read skip bucketing
-            if (sortedRuns.size() < targetReadOptions.targetReadPerRead)
+            if (runs.size() < targetReadOptions.targetReadPerRead)
                 continue;
 
             List<List<SortedRun>> buckets = getBuckets(runs,
@@ -382,6 +386,10 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
 
         if (candidateScores.size() > 0)
         {
+            if (candidateScores.get(0).right.equals(MAJOR_COMPACTION))
+            {
+                paceRewriteCompaction(now, coveringRanges.size());
+            }
             logger.debug("TRCS found {} candidates, yielding {}", candidateScores.size(), candidateScores.get(0));
             return candidateScores.get(0).left;
         }
@@ -390,6 +398,15 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
             logger.trace("TRCS yielded zero overlap candidates");
             return Collections.emptyList();
         }
+    }
+
+    private void paceRewriteCompaction(long currentTime, int coveringRanges)
+    {
+        // If we have only dense sstables coveringRanges will usually be larger than splitRange, but if
+        // we have sparse sstables (e.g. flush byproducts) we'll probably have ~splitrange / 2
+        coveringRanges = Math.max(Math.min(targetReadOptions.splitRange, coveringRanges), 1);
+        long delta = targetReadOptions.targetRewriteIntervalSeconds * 1000;
+        nextMajorCompactionTime = currentTime + (delta / coveringRanges);
     }
 
     /*
@@ -452,6 +469,7 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         return bucket.stream()
                      .limit(maxThreshHold)
                      .map(b -> b.sstables).flatMap(Set::stream)
+                     .distinct()
                      .collect(Collectors.toList());
     }
 
@@ -541,28 +559,30 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
             return maxLevel + 1;
     }
 
-    private static long next256MiB(double x) {
-        long n = 256 * 1024 * 1024;
-        return ((long) (Math.ceil(x / n))) * (n);
+    private void adjustTargetSize() {
+        if (sstables.size() > (targetReadOptions.maxSSTableCount / 2))
+        {
+            final long totalSize = sstables.stream().mapToLong(SSTableReader::onDiskLength).sum();
+            final double targetSSTableSize = Math.max(targetSSTableSizeBytes,
+                                                      totalSize / (targetReadOptions.maxSSTableCount / 2));
+            // So we don't have oddly sized tables, just always change in increments of 256 MiB
+            final long next256 = 256 * 1024 * 1024;
+            final long nextSize = ((long) (Math.ceil(targetSSTableSize / next256))) * (next256);
+            if (nextSize > this.targetSSTableSizeBytes) {
+                logger.debug("TRCS adjusting target sstable size to {}MiB due to observing {}MiB dataset over {} SSTables",
+                             nextSize / 1024 / 1024,
+                             totalSize / 1024 / 1024,
+                             sstables.size());
+                this.targetSSTableSizeBytes = nextSize;
+            }
+        }
     }
 
     private Pair<List<SSTableReader>, Integer> getSSTablesForCompaction(int gcBefore)
     {
         // Adjust the target size to meet the max count goal. Do this before we hit the goal so that
         // we can get "ahead" of the problem and hopefully do not need to re-write sorted runs later
-        if (sstables.size() > (targetReadOptions.maxSSTableCount / 2))
-        {
-            final long totalSize = sstables.stream().mapToLong(SSTableReader::onDiskLength).sum();
-            final double targetSSTableSize = Math.max(targetSSTableSizeBytes,
-                                                      totalSize / (targetReadOptions.maxSSTableCount / 2));
-            final long nextSize = next256MiB(targetSSTableSize);
-            if (nextSize > this.targetSSTableSizeBytes) {
-                logger.debug("TRCS adjusting target sstable size to {}MiB after {} SSTables",
-                             nextSize / 1024 / 1024,
-                             sstables.size());
-                this.targetSSTableSizeBytes = nextSize;
-            }
-        }
+        adjustTargetSize();
 
         Set<SSTableReader> candidatesSet = Sets.newHashSet(filterSuspectSSTables(filter(cfs.getUncompactingSSTables(), sstables::contains)));
 
@@ -668,11 +688,14 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         else
         {
             logger.info("TargetReadCompactionStrategy does not support blocking full compactions, " +
-                        "informing background tasks to beging full compactions of any SSTables older than {}",
-                        currentTime);
+                        "informing background tasks to begin full compactions of any SSTables older than {} over the" +
+                        "{} of {} seconds.",
+                        currentTime,
+                        TargetReadCompactionStrategyOptions.TARGET_REWRITE_INTERVAL_SECS,
+                        targetReadOptions.targetRewriteIntervalSeconds);
             majorCompactionGoalSetAt = currentTime;
         }
-        nextMajorCompactionTime.set(currentTime);
+        nextMajorCompactionTime = currentTime;
         return Collections.emptyList();
     }
 

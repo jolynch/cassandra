@@ -28,7 +28,7 @@ public final class TargetReadCompactionStrategyOptions
     protected static final long DEFAULT_TARGET_SSTABLE_SIZE = 1024L;
     protected static final int  DEFAULT_MIN_THRESHOLD_LEVELS = 2;
     protected static final int DEFAULT_TARGET_READ_PER_READ = 4;
-    protected static final long DEFAULT_TARGET_REWRITE_INTERVAL_SECONDS = 60 * 60; // 1 hour
+    protected static final long DEFAULT_TARGET_REWRITE_INTERVAL_SECONDS = 60 * 60; // 60 minutes
     protected static final int DEFAULT_MAX_READ_PER_READ = 12;
     protected static final long DEFAULT_MAX_COUNT = 2000;
     protected static final int DEFAULT_MAX_LEVEL_AGE_SECONDS = 60 * 60 * 24 * 10;  // 10 days

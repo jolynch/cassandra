@@ -26,33 +26,36 @@ public final class TargetReadCompactionStrategyOptions
 {
     protected static final int DEFAULT_SPLIT_RANGE = 16;
     protected static final long DEFAULT_TARGET_SSTABLE_SIZE = 1024L;
-    protected static final int DEFAULT_MIN_THRESHOLD_LEVELS = 2;
     protected static final int DEFAULT_TARGET_READ_PER_READ = 4;
     protected static final long DEFAULT_TARGET_REWRITE_INTERVAL_SECONDS = 60 * 60; // 60 minutes
     protected static final int DEFAULT_MAX_READ_PER_READ = 12;
     protected static final long DEFAULT_MAX_COUNT = 2000;
+
+    protected static final int DEFAULT_MIN_THRESHOLD_LEVELS = 2;
     protected static final int DEFAULT_MAX_LEVEL_AGE_SECONDS = 60 * 60 * 24 * 10;  // 10 days
     protected static final double DEFAULT_LEVEL_BUCKET_LOW = 0.5;
     protected static final double DEFAULT_LEVEL_BUCKET_HIGH = 1.5;
 
     protected static final String SPLIT_RANGE_KEY = "split_range";
-    protected static final String MIN_THRESHOLD_LEVELS = "min_threshold_levels";
     protected static final String TARGET_SSTABLE_SIZE = "target_sstable_size_in_mb";
     protected static final String TARGET_READ_PER_READ = "target_read_per_read";
     protected static final String TARGET_REWRITE_INTERVAL_SECS = "target_rewrite_interval_in_seconds";
     protected static final String MAX_READ_PER_READ = "max_read_per_read";
     protected static final String MAX_SSTABLE_COUNT = "max_sstable_count";
+
+    protected static final String MIN_THRESHOLD_LEVELS = "min_threshold_levels";
     protected static final String MAX_LEVEL_AGE_SECS = "max_level_age_in_seconds";
     protected static final String LEVEL_BUCKET_LOW = "level_bucket_low";
     protected static final String LEVEL_BUCKET_HIGH = "level_bucket_high";
 
     protected final int splitRange;
-    protected final int minThresholdLevels;
     protected final long targetSSTableSizeBytes;
     protected final int targetReadPerRead;
     protected final long targetRewriteIntervalSeconds;
     protected final long maxSSTableCount;
     protected final int maxReadPerRead;
+
+    protected final int minThresholdLevels;
     protected final int maxLevelAgeSeconds;
     protected final double levelBucketLow;
     protected final double levelBucketHigh;
@@ -60,12 +63,12 @@ public final class TargetReadCompactionStrategyOptions
     public TargetReadCompactionStrategyOptions(Map<String, String> options)
     {
         splitRange = parseInt(options, SPLIT_RANGE_KEY, DEFAULT_SPLIT_RANGE);
-        minThresholdLevels = parseInt(options, MIN_THRESHOLD_LEVELS, DEFAULT_MIN_THRESHOLD_LEVELS);
         targetSSTableSizeBytes = parseLong(options, TARGET_SSTABLE_SIZE, DEFAULT_TARGET_SSTABLE_SIZE) * 1024L * 1024L;
         targetReadPerRead = parseInt(options, TARGET_READ_PER_READ, DEFAULT_TARGET_READ_PER_READ);
         targetRewriteIntervalSeconds = parseLong(options, TARGET_REWRITE_INTERVAL_SECS, DEFAULT_TARGET_REWRITE_INTERVAL_SECONDS);
         maxSSTableCount = parseLong(options, MAX_SSTABLE_COUNT, DEFAULT_MAX_COUNT);
         maxReadPerRead = parseInt(options, MAX_READ_PER_READ, DEFAULT_MAX_READ_PER_READ);
+        minThresholdLevels = parseInt(options, MIN_THRESHOLD_LEVELS, DEFAULT_MIN_THRESHOLD_LEVELS);
         maxLevelAgeSeconds = parseInt(options, MAX_LEVEL_AGE_SECS, DEFAULT_MAX_LEVEL_AGE_SECONDS);
         levelBucketLow = parseDouble(options, LEVEL_BUCKET_LOW, DEFAULT_LEVEL_BUCKET_LOW);
         levelBucketHigh = parseDouble(options, LEVEL_BUCKET_HIGH, DEFAULT_LEVEL_BUCKET_HIGH);

@@ -67,7 +67,7 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
     protected volatile int estimatedRemainingTasks;
     protected long targetSSTableSizeBytes;
     protected volatile Pair<Integer, SSTableIntervalTree> cachedTree;
-    protected volatile Pair<Integer, List<Pair<List<SSTableReader>, Double>>> cachedScores;
+    protected volatile Pair<Integer, List<Pair<List<SortedRun>, Double>>> cachedScores;
 
     /** Used to encapsulate a Sorted Run (aka "Level" of SSTables)
      */
@@ -77,7 +77,7 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         public final long sizeInBytes;
         public final double keyRangeSize;
         public final long createdAt;
-        public final long level;
+        public final int level;
 
         private SortedRun(Set<SSTableReader> sstables, long sizeInBytes, double keyRangeSize)
         {
@@ -255,7 +255,7 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         //   In this case we are interested in compacting Level=23 and
         //   and Level=24 because they have similar density and would yield read
         //   per read reduction while costing little in compaction.
-        List<Pair<List<SSTableReader>, Double>> candidateScores = new ArrayList<>();
+        List<Pair<List<SortedRun>, Double>> candidateScores = new ArrayList<>();
         for (int i = 0; i < coveringRanges.size(); i++)
         {
             AbstractBounds<PartitionPosition> coveringRange = coveringRanges.get(i);
@@ -282,7 +282,7 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
                 int pivot = runs.size() - 1;
                 List<SortedRun> bucket = new ArrayList<>();
 
-                while (pivot > 0 &&
+                while (pivot >= 0 &&
                        now > nextMajorCompactionTime &&
                        runs.get(pivot).left.createdAt < majorCompactionGoalSetAt) {
                     // We have a signaled full compaction, just yield the qualifying sorted runs
@@ -291,9 +291,12 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
                     pivot--;
                 }
 
-                if (bucket.size() > 1) {
+                if (bucket.size() > 1)
+                {
                     logger.debug("TRCS found full compaction candidates: {}", bucket);
-                } else {
+                }
+                else
+                {
                     SortedRun oldest = runs.get(pivot).left;
                     if (targetReadOptions.maxLevelAgeSeconds > 0 &&
                         now > nextMajorCompactionTime &&
@@ -311,12 +314,12 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
 
                 if (bucket.size() > 1)
                 {
-                    long size = bucket.stream().mapToLong(s -> s.sizeInBytes).sum();
+                    long sizeInBytes = bucket.stream().mapToLong(s -> s.sizeInBytes).sum();
                     int runIndex = 0;
-                    while (size > 0 && runIndex < pivot)
+                    while (sizeInBytes > 0 && runIndex < pivot)
                     {
                         bucket.add(runs.get(runIndex).left);
-                        size -= runs.get(runIndex).left.sizeInBytes;
+                        sizeInBytes -= runs.get(runIndex).left.sizeInBytes;
                         runIndex++;
                     }
                     candidateScores.add(Pair.create(
@@ -368,8 +371,8 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
             }
         }
 
-        Comparator<Pair<List<SSTableReader>, Double>> c = Comparator.<Pair<List<SSTableReader>, Double>>
-                                                                    comparingDouble(s -> s.right).reversed();
+        Comparator<Pair<List<SortedRun>, Double>> c = Comparator.<Pair<List<SortedRun>, Double>>
+                                                                 comparingDouble(s -> s.right).reversed();
         candidateScores.sort(c);
         cachedScores = Pair.create(overlapCandidates.hashCode(), candidateScores);
         estimatedRemainingTasks = candidateScores.size();
@@ -377,13 +380,15 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         return chooseCandidate(now, candidateScores);
     }
 
-    private List<SSTableReader> chooseCandidate(long now, List<Pair<List<SSTableReader>, Double>> candidateScores)
+    private List<SSTableReader> chooseCandidate(long now, List<Pair<List<SortedRun>, Double>> candidateScores)
     {
         if (candidateScores.size() > 0)
         {
-            if (candidateScores.get(0).right.equals(MAJOR_COMPACTION))
+            List<SortedRun> bestCandidate = candidateScores.get(0).left;
+            double bestScore = candidateScores.get(0).right;
+            if (bestScore >= MAJOR_COMPACTION)
             {
-                long majors = candidateScores.stream().filter(cs -> cs.right.equals(MAJOR_COMPACTION)).count();
+                long majors = candidateScores.stream().filter(cs -> cs.right >= MAJOR_COMPACTION).count();
                 long pending = pendingMajors.get();
                 if (majors > pending)
                 {
@@ -397,20 +402,13 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
                 pendingMajors.set(0);
             }
 
-            if (logger.isDebugEnabled())
-            {
-                List<Integer> levels = candidateScores.get(0).left.stream()
-                                                                  .map(SSTableReader::getSSTableLevel)
-                                                                  .distinct()
-                                                                  .collect(Collectors.toList());
-                logger.debug("TRCS found {} candidates, choosing sorted_runs={},sstable_count={},score={}",
-                             candidateScores.size(),
-                             levels,
-                             candidateScores.get(0).left.size(),
-                             candidateScores.get(0).right);
-            }
-            logger.trace("TRCS candidate: {}", candidateScores.get(0));
-            return candidateScores.get(0).left;
+            logger.debug("TRCS found {} candidates, choosing sorted_runs={},score={}",
+                         candidateScores.size(),
+                         bestCandidate,
+                         bestScore);
+
+            logger.trace("TRCS candidate: {}", sortedRunToSSTables(bestCandidate));
+            return sortedRunToSSTables(bestCandidate);
         }
         else
         {
@@ -471,14 +469,21 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
     }
 
     @VisibleForTesting
-    static List<SSTableReader> createCandidate(List<SortedRun> bucket, int maxThreshHold)
+    static List<SortedRun> createCandidate(List<SortedRun> bucket, int maxThreshHold)
     {
         // If we're going to be cutoff by maxThreshold, we want to do the smallest runs.
         bucket.sort(Comparator.comparing(b -> b.sizeInBytes));
 
         return bucket.stream()
                      .limit(maxThreshHold)
-                     .map(b -> b.sstables).flatMap(Set::stream)
+                     .collect(Collectors.toList());
+    }
+
+    static List<SSTableReader> sortedRunToSSTables(List<SortedRun> bucket)
+    {
+        return bucket.stream()
+                     .map(sr -> sr.sstables)
+                     .flatMap(Set::stream)
                      .distinct()
                      .collect(Collectors.toList());
     }
@@ -526,8 +531,8 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         }
         else
         {
-            // We may still have to yield a compaction that is too large if we are very close
-            // so just make them very very de-preferred.
+            // We may still have to yield a compaction that is too large to try to reclaim some
+            // disk space, but try to prefer ones that we know won't do that.
             return 0.001 * (value / normalizedBytes);
         }
     }

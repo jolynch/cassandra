@@ -146,6 +146,32 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         return Collections.emptyList();
     }
 
+
+    private Pair<List<SortedRun>, Set<SSTableReader>> filterSmallSortedRuns(Set<SSTableReader> candidatesSet)
+    {
+        Map<Integer, Set<SSTableReader>> sortedRuns;
+        sortedRuns = candidatesSet.stream()
+                                  .filter(s -> s.getSSTableLevel() > 0)
+                                  .collect(Collectors.groupingBy(SSTableReader::getSSTableLevel,
+                                                                 Collectors.toSet()));
+
+        List<Pair<SortedRun, Long>> runs = createSortedRunDensities(sortedRuns);
+
+        List<SortedRun> smallRuns = new ArrayList<>(cfs.getMinimumCompactionThreshold());
+        List<SortedRun> largeRuns = new ArrayList<>(runs.size());
+        for (Pair<SortedRun, Long> run : runs)
+        {
+            if (run.left.sizeInBytes >= targetReadOptions.splitRange * targetReadOptions.targetSSTableSizeBytes)
+                largeRuns.add(run.left);
+            else
+                smallRuns.add(run.left);
+        }
+
+        Set<SSTableReader> toPassOn = new HashSet<>(sortedRunToSSTables(largeRuns));
+        return Pair.create(smallRuns, toPassOn);
+    }
+
+
     private List<SSTableReader> findSmallSSTables(Set<SSTableReader> sizeCandidates)
     {
         final int maxThreshold = cfs.getMaximumCompactionThreshold();
@@ -210,37 +236,39 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         return bounds;
     }
 
-    private List<SSTableReader> findOverlappingSSTables(Set<SSTableReader> compactionCandidates)
+    private List<SortedRun> findOverlappingSSTables(List<SortedRun> smallRuns, Set<SSTableReader> overlapCandidates)
     {
+        Set<Integer> smallRunLevels = smallRuns.stream().map(sr -> sr.level).collect(Collectors.toSet());
+        Set<SSTableReader> allSSTables = Sets.union(new HashSet<>(sortedRunToSSTables(smallRuns)), overlapCandidates);
+        if (allSSTables.isEmpty()) return Collections.emptyList();
+
         long now = System.currentTimeMillis();
-
         int maxThreshold = cfs.getMaximumCompactionThreshold();
-        // We never consider the freshly flushed sstables candidates for overlap compaction
-        // they _must_ go through the cleaning process in findNewlyFlushedSSTables first
-        Set<SSTableReader> overlapCandidates = compactionCandidates.stream()
-                                                                   .filter(s -> s.getSSTableLevel() > 0)
-                                                                   .collect(Collectors.toSet());
-
-        if (overlapCandidates.isEmpty()) return Collections.emptyList();
 
         // Best effort caching of scores and trees ... if we end up doing it twice it is not a big deal.
         // we're just trying to avoid re-evaluating overlaps all the time if the sstables haven't changed
-        if (overlapCandidates.hashCode() == cachedScores.left)
-        {
+        if (allSSTables.hashCode() == cachedScores.left)
             return chooseCandidate(now, cachedScores.right);
-        }
 
         // Only compute a new interval tree if the sstables in sorted runs has actually changed.
-        if (overlapCandidates.hashCode() != cachedTree.left)
+        if (allSSTables.hashCode() != cachedTree.left)
         {
-            cachedTree = Pair.create(overlapCandidates.hashCode(), SSTableIntervalTree.build(overlapCandidates));
+            // Include the small runs in the interval tree so that full compaction can find them
+            // Note that they will be ignored in the bucketing (so we don't do a ton of small compactions).
+            cachedTree = Pair.create(allSSTables.hashCode(), SSTableIntervalTree.build(allSSTables));
         }
         SSTableIntervalTree tree = cachedTree.right;
-        List<AbstractBounds<PartitionPosition>> coveringRanges = findCoveringRanges(overlapCandidates);
 
+        if (overlapCandidates.isEmpty())
+        {
+            logger.trace("TRCS has no overlap candidates, checking full compaction candidates");
+            overlapCandidates = allSSTables;
+        }
+
+        List<AbstractBounds<PartitionPosition>> coveringRanges = findCoveringRanges(overlapCandidates);
         logger.trace("TRCS found {} covering ranges", coveringRanges.size());
         logger.trace("TRCS current time of {} and next major compaction allowed after {}", now, nextMajorCompactionTime);
-        // 1. Take covering ranges, which should mostly align with freshly normalized SSTables, and
+        // 1. Take covering ranges, which should mostly align with freshly consolidated SSTables, and
         //    find overlapping levels (SortedRuns) with those ranges.
         // 2. When we have more than targetReadPerRead sorted runs, try combining low density
         //    SortedRuns that give us our biggest overlap reduction for our compaction buck
@@ -263,8 +291,7 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
             Set<SSTableReader> sortedRun;
             for (AbstractBounds<PartitionPosition> unwrapped : coveringRange.unwrap())
             {
-                List<SSTableReader> overlappingInRange = View.sstablesInBounds(unwrapped.left, unwrapped.right, tree);
-                for (SSTableReader sstable : overlappingInRange)
+                for (SSTableReader sstable : View.sstablesInBounds(unwrapped.left, unwrapped.right, tree))
                 {
                     sortedRun = sortedRuns.computeIfAbsent(sstable.getSSTableLevel(), k -> new HashSet<>());
                     sortedRun.add(sstable);
@@ -333,7 +360,15 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
             if (runs.size() < targetReadOptions.targetReadPerRead)
                 continue;
 
-            List<List<SortedRun>> buckets = getBuckets(runs,
+            // Now that we've gotten past any kind of major compaction, remove any small runs
+            // from the bucketing calculation to avoid needless write amplification
+            List<Pair<SortedRun, Long>> bucketRuns = new ArrayList<>();
+            for (Pair<SortedRun, Long> sr: runs) {
+                if (!smallRunLevels.contains(sr.left.level))
+                    bucketRuns.add(sr);
+            }
+
+            List<List<SortedRun>> buckets = getBuckets(bucketRuns,
                                                        targetReadOptions.levelBucketHigh,
                                                        targetReadOptions.levelBucketLow);
 
@@ -353,14 +388,16 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
 
             // Edge case where we can't find any density candidates but we're still over
             // maxReadPerRead so just find targetReadPerRead smallest runs and compact them
-            if (bucketsFound == 0 && runs.size() > targetReadOptions.maxReadPerRead && runs.size() >= 2)
+            if (bucketsFound == 0 &&
+                runs.size() > 2 &&
+                runs.size() > targetReadOptions.maxReadPerRead)
             {
                 // We know that maxReadPerRead is always larger than targetReadPerRead
                 runs.sort(Comparator.comparing(r -> r.left.sizeInBytes));
                 List<SortedRun> bucket = runs.subList(0, targetReadOptions.targetReadPerRead).stream()
                                              .map(p -> p.left)
                                              .collect(Collectors.toList());
-                logger.warn("TRCS hitting max_read_per_read of {}! Emergency compaction to reduce overlap yielding: {}",
+                logger.debug("TRCS hitting max_read_per_read of {}, compacting to reduce overlap: {}",
                             targetReadOptions.maxReadPerRead,
                             bucket);
 
@@ -374,13 +411,13 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         Comparator<Pair<List<SortedRun>, Double>> c = Comparator.<Pair<List<SortedRun>, Double>>
                                                                  comparingDouble(s -> s.right).reversed();
         candidateScores.sort(c);
-        cachedScores = Pair.create(overlapCandidates.hashCode(), candidateScores);
+        cachedScores = Pair.create(allSSTables.hashCode(), candidateScores);
         estimatedRemainingTasks = candidateScores.size();
 
         return chooseCandidate(now, candidateScores);
     }
 
-    private List<SSTableReader> chooseCandidate(long now, List<Pair<List<SortedRun>, Double>> candidateScores)
+    private List<SortedRun> chooseCandidate(long now, List<Pair<List<SortedRun>, Double>> candidateScores)
     {
         if (candidateScores.size() > 0)
         {
@@ -408,7 +445,7 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
                          bestScore);
 
             logger.trace("TRCS candidate: {}", sortedRunToSSTables(bestCandidate));
-            return sortedRunToSSTables(bestCandidate);
+            return bestCandidate;
         }
         else
         {
@@ -425,16 +462,10 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
     static <T> List<List<T>> getBuckets(Collection<Pair<T, Long>> files, double bucketHigh, double bucketLow)
     {
         // Sort the list in order to get deterministic results during the grouping below
-        List<Pair<T, Long>> sortedFiles = new ArrayList<Pair<T, Long>>(files);
-        Collections.sort(sortedFiles, new Comparator<Pair<T, Long>>()
-        {
-            public int compare(Pair<T, Long> p1, Pair<T, Long> p2)
-            {
-                return p1.right.compareTo(p2.right);
-            }
-        });
+        List<Pair<T, Long>> sortedFiles = new ArrayList<>(files);
+        sortedFiles.sort(Comparator.comparing(p -> p.right));
 
-        Map<Long, List<T>> buckets = new HashMap<Long, List<T>>();
+        Map<Long, List<T>> buckets = new HashMap<>();
 
         outer:
         for (Pair<T, Long> pair: sortedFiles)
@@ -460,7 +491,7 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
             }
 
             // no similar bucket found; put it in a new one
-            ArrayList<T> bucket = new ArrayList<T>();
+            ArrayList<T> bucket = new ArrayList<>();
             bucket.add(pair.left);
             buckets.put(value, bucket);
         }
@@ -483,7 +514,7 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
     {
         return bucket.stream()
                      .map(sr -> sr.sstables)
-                     .flatMap(Set::stream)
+                     .flatMap(Collection::stream)
                      .distinct()
                      .collect(Collectors.toList());
     }
@@ -536,7 +567,6 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
             return 0.001 * (value / normalizedBytes);
         }
     }
-
 
     private static List<Pair<SortedRun, Long>> createSortedRunDensities(Map<Integer, Set<SSTableReader>> sstables)
     {
@@ -619,22 +649,36 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         if (sstablesToCompact.size() > 1)
         {
             logger.debug("TRCS normalizing newly flushed SSTables: {}", sstablesToCompact);
-            return Pair.create(sstablesToCompact, 1);
-        }
-
-        // The Primary "Target Read" part of the algorithm. Now we consider levels to be sorted runs
-        // and look for overlapping runs, bucketed by density (size / |range|)
-        sstablesToCompact = findOverlappingSSTables(candidatesSet);
-        if (sstablesToCompact.size() > 1)
-        {
-            long readReduction = sstablesToCompact.stream().mapToInt(SSTableReader::getSSTableLevel).distinct().count();
-            logger.debug("TRCS compacting {} sorted runs to reduce reads per read: {}", readReduction, sstablesToCompact);
             return Pair.create(sstablesToCompact, getLevel(sstablesToCompact));
         }
 
+        // Handle sorted runs that are not large enough yet to have at least split_range covering ranges, keep compacting
+        // such runs until they get big enough to enter the "levels".
+        Pair<List<SortedRun>, Set<SSTableReader>> filteredRuns = filterSmallSortedRuns(candidatesSet);
+        int numSmallRuns = filteredRuns.left.size();
+        if (numSmallRuns > cfs.getMinimumCompactionThreshold() ||
+            (numSmallRuns > 1 && numSmallRuns + targetReadOptions.targetReadPerRead > targetReadOptions.maxReadPerRead))
+        {
+            sstablesToCompact = sortedRunToSSTables(filteredRuns.left);
+            logger.debug("TRCS consolidating small runs: {}", sstablesToCompact);
+            return Pair.create(sstablesToCompact, getLevel(sstablesToCompact));
+        }
+        else
+        {
+            // The Primary "Target Read" part of the algorithm. Now we consider levels to be sorted runs
+            // and look for overlapping runs, bucketed by density (size / |range|)
+            sstablesToCompact = sortedRunToSSTables(findOverlappingSSTables(filteredRuns.left, filteredRuns.right));
+            if (sstablesToCompact.size() > 1)
+            {
+                long readReduction = sstablesToCompact.stream().mapToInt(SSTableReader::getSSTableLevel).distinct().count();
+                logger.debug("TRCS compacting {} sorted runs to reduce reads per read: {}", readReduction, sstablesToCompact);
+                return Pair.create(sstablesToCompact, getLevel(sstablesToCompact));
+            }
+        }
+
         // If we have exceeded the target number of SSTables, re-write sorted runs into larger files
-        // to keep the number of tables reasonable even as datasets scale to TiBs of data
-        if (candidatesSet.size() > targetReadOptions.maxSSTableCount)
+        // to keep the number of SSTables (-> files) reasonable even as datasets scale to TiBs of data
+        if (sstables.size() > targetReadOptions.maxSSTableCount)
         {
             sstablesToCompact = findSmallSSTables(candidatesSet);
             if (sstablesToCompact.size() > 1)
@@ -662,35 +706,11 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         {
             Pair<List<SSTableReader>, Integer> compactionTarget = getSSTablesForCompaction(gcBefore);
             List<SSTableReader> sstablesToCompact = compactionTarget.left;
-            int level = compactionTarget.right;
-            long targetSize = targetSSTableSizeBytes;
-
             if (sstablesToCompact.isEmpty())
                 return null;
 
-            // Flushed sstables create overlaps with essentially all sorted runs (assuming writes are
-            // evenly distributed). This will in turn make the covering range essentially the whole
-            // range. To get around this we try to split these "bad" sstables into a bunch of small
-            // "good" (aka covering smaller range) SSTables during the first compaction.
-            if (level == 1) {
-                long totalCount = 0;
-                long totalSize = 0;
-                for (SSTableReader sstable: sstablesToCompact)
-                {
-                    totalCount += SSTableReader.getApproximateKeyCount(Collections.singletonList((sstable)));
-                    totalSize += sstable.bytesOnDisk();
-                }
-                long estimatedCombinedCount = SSTableReader.getApproximateKeyCount(sstablesToCompact);
-
-                double ratio = (double) estimatedCombinedCount / (double) totalCount;
-                targetSize = Math.max(4096, Math.round(((totalSize * ratio) / targetReadOptions.splitRange)));
-
-                // At this point we need to "promote" this to a proper sorted run identifier
-                level = getLevel(sstablesToCompact);
-
-                logger.debug("TRCS normalization compaction yielding {} sstables of size {}MiB with ratio {}",
-                             totalSize / targetSize, targetSize / (1024 * 1024), ratio);
-            }
+            int level = compactionTarget.right;
+            long targetSize = targetSSTableSizeBytes;
 
             LifecycleTransaction transaction = cfs.getTracker().tryModify(sstablesToCompact, OperationType.COMPACTION);
             if (transaction != null)

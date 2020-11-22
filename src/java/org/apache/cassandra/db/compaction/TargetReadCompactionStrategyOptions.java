@@ -65,7 +65,7 @@ public final class TargetReadCompactionStrategyOptions
     {
         long targetSSTableSizeInMb = parseLong(options, TARGET_SSTABLE_SIZE, DEFAULT_TARGET_SSTABLE_SIZE);
         targetSSTableSizeBytes =  targetSSTableSizeInMb * 1024L * 1024L;
-        // Default to some large multiple of the SSTable size,
+        // Default to some relatively large multiple of the SSTable size,
         targetWorkSizeInBytes = parseLong(options,
                                           TARGET_WORK_UNIT,
                                           targetSSTableSizeInMb * DEFAULT_WORK_UNIT_MULTIPLE) * 1024L * 1024L;

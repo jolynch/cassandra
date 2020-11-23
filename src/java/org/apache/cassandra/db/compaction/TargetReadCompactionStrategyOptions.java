@@ -174,9 +174,9 @@ public final class TargetReadCompactionStrategyOptions
         }
 
         int maxRead = parseInt(options, MAX_READ_PER_READ, DEFAULT_MAX_READ_PER_READ);
-        if (maxRead < 2)
+        if (maxRead < 3)
         {
-            throw new ConfigurationException(String.format("%s cannot be smaller than 2: %d", MAX_READ_PER_READ, maxRead));
+            throw new ConfigurationException(String.format("%s cannot be smaller than 3: %d", MAX_READ_PER_READ, maxRead));
         }
 
         if (maxRead < targetRead)

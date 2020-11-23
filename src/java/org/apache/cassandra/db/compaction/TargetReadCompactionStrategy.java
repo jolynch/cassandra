@@ -23,7 +23,6 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -48,7 +47,6 @@ import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.schema.CompactionParams;
-import org.apache.cassandra.utils.Interval;
 import org.apache.cassandra.utils.Pair;
 
 import static com.google.common.collect.Iterables.filter;
@@ -77,7 +75,8 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
     private static class SortedRun
     {
         public final List<SSTableReader> sstables;
-        public final long sizeInBytes;
+        public final long uncompressedSizeInBytes;
+        public final long sizeOnDiskInBytes;
         public final double keyRangeSize;
         public final long createdAt;
         public final int level;
@@ -90,15 +89,18 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
             this.level = this.sstables.get(0).getSSTableLevel();
 
             long sizeInBytes = 0;
+            long onDiskSizeInBytes = 0;
             double keyRangeSize = 0;
             long createdAt = Long.MAX_VALUE;
             for (SSTableReader sst: this.sstables)
             {
                 sizeInBytes += sst.uncompressedLength();
+                onDiskSizeInBytes += sst.onDiskLength();
                 keyRangeSize += sst.first.getToken().size(sst.last.getToken());
                 createdAt = Math.min(createdAt, sst.getCreationTimeFor(Component.DATA));
             }
-            this.sizeInBytes = sizeInBytes;
+            this.uncompressedSizeInBytes = sizeInBytes;
+            this.sizeOnDiskInBytes = onDiskSizeInBytes;
             this.keyRangeSize = Math.min(1.0, keyRangeSize);
             this.createdAt = createdAt;
         }
@@ -108,7 +110,7 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
             return "SortedRun{" +
                    "level=" + this.level +
                    ", count=" + sstables.size() +
-                   ", sizeInMiB=" + sizeInBytes / (1024 * 1024) +
+                   ", sizeInMiB=" + uncompressedSizeInBytes / (1024 * 1024) +
                    ", keyRangeSize=" + keyRangeSize +
                    ", createdAt=" + createdAt +
                    '}';
@@ -172,11 +174,11 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
     }
 
 
-    private Pair<List<SortedRun>, Set<SSTableReader>> filterSparseSortedRuns(Set<SSTableReader> candidatesSet)
+    private Pair<List<SortedRun>, Set<SSTableReader>> filterSparseSortedRuns(Set<SSTableReader> candidatesSet,
+                                                                             double intervalSize)
     {
         Map<Integer, Set<SSTableReader>> sortedRuns;
         sortedRuns = candidatesSet.stream()
-                                  .filter(s -> s.getSSTableLevel() > 0)
                                   .collect(Collectors.groupingBy(SSTableReader::getSSTableLevel,
                                                                  Collectors.toSet()));
 
@@ -190,7 +192,7 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         for (Pair<SortedRun, Long> run : runs)
         {
             // A run which has 2 GiB spread over 0.1 of the keyRange is as dense as 20GiB over the whole range.
-            double effectiveRunSize = run.left.sizeInBytes * (1 / Math.max(0.0001, run.left.keyRangeSize));
+            double effectiveRunSize = run.left.sizeOnDiskInBytes * (intervalSize / Math.max(0.00001, run.left.keyRangeSize));
 
             if (effectiveRunSize >= targetSizeBytes) denseRuns.add(run.left);
             else sparseRuns.add(run.left);
@@ -226,38 +228,40 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
     }
 
     @VisibleForTesting
-    static List<AbstractBounds<PartitionPosition>> findWorkRanges(SSTableIntervalTree tree,
-                                                                  int targetRangeSpits)
+    static List<AbstractBounds<PartitionPosition>> findWorkRanges(Set<SSTableReader> sstables, double targetRangeSize)
     {
-        ArrayList<AbstractBounds<PartitionPosition>> workRanges = Lists.newArrayListWithCapacity(targetRangeSpits);
-        double targetRangeSize = 1.0 / targetRangeSpits;
-        logger.trace("TRCS attempting to split into ranges of size: {}", targetRangeSize);
+        logger.trace("Splitting interval into {} size", targetRangeSize);
+        List<AbstractBounds<PartitionPosition>> workRanges = Lists.newArrayListWithCapacity(targetRangeSpits);
+        List<PartitionPosition> allEndpoints = new ArrayList<>(2 * sstables.size());
+        for (SSTableReader sstable: sstables)
+        {
+            allEndpoints.add(sstable.first);
+            allEndpoints.add(sstable.last);
+        }
+        Collections.sort(allEndpoints);
 
-        double currentRangeSize = 0.0;
         PartitionPosition start = null;
         PartitionPosition end = null;
-        Iterator<Interval<PartitionPosition, SSTableReader>> ranges = tree.iterator();
-        while (ranges.hasNext())
+        for (PartitionPosition pos: allEndpoints)
         {
-            Interval<PartitionPosition, SSTableReader> range = ranges.next();
-            if (start == null) start = range.min;
-            end = range.max;
+            if (start == null) start = pos;
+            end = pos;
 
-            currentRangeSize += range.min.getToken().size(range.max.getToken());
-
-            if (currentRangeSize >= targetRangeSize * (1 + workRanges.size()))
+            if (end.compareTo(start) > 0 && start.getToken().size(end.getToken()) > targetRangeSize)
             {
                 workRanges.add(AbstractBounds.bounds(start, true, end, true));
                 start = end;
             }
         }
-        if (currentRangeSize > 0.0 && currentRangeSize < 1.0)
+        if (start != null && end.compareTo(start) > 0)
             workRanges.add(AbstractBounds.bounds(start, true, end, true));
 
         return workRanges;
     }
 
-    private List<SortedRun> findOverlappingSSTables(List<SortedRun> smallRuns, Set<SSTableReader> overlapCandidates)
+    private List<SortedRun> findOverlappingSSTables(List<SortedRun> smallRuns,
+                                                    Set<SSTableReader> overlapCandidates,
+                                                    double intervalSize)
     {
         Set<Integer> smallRunLevels = smallRuns.stream().map(sr -> sr.level).collect(Collectors.toSet());
         Set<SSTableReader> allSSTables = Sets.union(new HashSet<>(sortedRunToSSTables(smallRuns)), overlapCandidates);
@@ -266,21 +270,15 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         long now = System.currentTimeMillis();
         int maxThreshold = cfs.getMaximumCompactionThreshold();
 
-        // Best effort caching of scores and trees ... if we end up doing it twice it is not a big deal.
+        // Best effort caching of scores ... if we end up doing it twice it is not a big deal.
         // we're just trying to avoid re-evaluating overlaps all the time if the sstables haven't changed
         if (allSSTables.hashCode() == cachedScores.left)
             return chooseCandidate(now, cachedScores.right);
 
-        // Only compute a new interval tree if the sstables in sorted runs has actually changed.
-        if (allSSTables.hashCode() != cachedTree.left)
-        {
-            // Include the small runs in the interval tree so that full compaction can find them
-            // Note that they will be ignored in the bucketing (so we don't do a ton of small compactions).
-            cachedTree = Pair.create(allSSTables.hashCode(), SSTableIntervalTree.build(allSSTables));
-        }
         SSTableIntervalTree tree = cachedTree.right;
 
-        List<AbstractBounds<PartitionPosition>> workRanges = findWorkRanges(tree, targetRangeSpits);
+        logger.trace("TRCS operating on interval of size {}", intervalSize);
+        List<AbstractBounds<PartitionPosition>> workRanges = findWorkRanges(allSSTables, intervalSize / targetRangeSpits);
         logger.trace("TRCS found {} ranges", workRanges.size());
         logger.trace("TRCS current time of {} and next major compaction allowed after {}", now, nextMajorCompactionTime);
         List<Pair<List<SortedRun>, Double>> candidateScores = new ArrayList<>();
@@ -301,7 +299,7 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
             // Handles full compaction and the edge case where we have some really old (probably really dense) sorted
             // runs. If we detect such runs, yield the oldest run and all youngest runs up to that size (essentially a
             // "full" compaction across the runs). We choose the youngest because we are probably trying to get updates
-            // from the younger tables (e.g. deletes or updates) into the older ones.
+            // from the younger runs (e.g. deletes or updates) into the older ones.
             runs.sort(Comparator.comparing(r -> r.left.createdAt));
             if (runs.size() > 1)
             {
@@ -347,12 +345,12 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
 
                 if (bucket.size() > 1)
                 {
-                    long sizeInBytes = bucket.stream().mapToLong(s -> s.sizeInBytes).sum();
+                    long sizeInBytes = bucket.stream().mapToLong(s -> s.uncompressedSizeInBytes).sum();
                     int runIndex = 0;
                     while (sizeInBytes > 0 && runIndex < pivot)
                     {
                         bucket.add(runs.get(runIndex).left);
-                        sizeInBytes -= runs.get(runIndex).left.sizeInBytes;
+                        sizeInBytes -= runs.get(runIndex).left.uncompressedSizeInBytes;
                         runIndex++;
                     }
                     candidateScores.add(Pair.create(
@@ -397,11 +395,10 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
             // Edge case where we can't find any density candidates but we're still over
             // maxReadPerRead so just find targetReadPerRead smallest runs and compact them
             if (bucketsFound == 0 &&
-                runs.size() > 2 &&
                 runs.size() > targetReadOptions.maxReadPerRead)
             {
                 // We know that maxReadPerRead is always larger than targetReadPerRead
-                runs.sort(Comparator.comparing(r -> r.left.sizeInBytes));
+                runs.sort(Comparator.comparing(r -> r.left.uncompressedSizeInBytes));
                 List<SortedRun> bucket = runs.subList(0, targetReadOptions.targetReadPerRead).stream()
                                              .map(p -> p.left)
                                              .collect(Collectors.toList());
@@ -464,7 +461,7 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
     static List<SortedRun> createCandidate(List<SortedRun> bucket, int maxThreshHold)
     {
         // If we're going to be cutoff by maxThreshold, we want to do the smallest runs.
-        bucket.sort(Comparator.comparing(b -> b.sizeInBytes));
+        bucket.sort(Comparator.comparing(b -> b.uncompressedSizeInBytes));
 
         return bucket.stream()
                      .limit(maxThreshHold)
@@ -514,8 +511,8 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         long totalBytes = 0;
         double normalizedBytes = 0;
         for (SortedRun sortedRun : bucket) {
-            totalBytes += sortedRun.sizeInBytes;
-            normalizedBytes += Math.min(1, sortedRun.sizeInBytes * sortedRun.keyRangeSize);
+            totalBytes += sortedRun.uncompressedSizeInBytes;
+            normalizedBytes += Math.min(1, sortedRun.uncompressedSizeInBytes * sortedRun.keyRangeSize);
         }
         if (cfs.getDirectories().hasAvailableDiskSpace(1, totalBytes))
         {
@@ -538,7 +535,7 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
             // Since we use a fixed size SSTable size is a good proxy for density (also nicely handles when a "dense"
             // run moves into a work range with less dense sstables
             SortedRun sortedRun = new SortedRun(run);
-            sstableDensityPairs.add(Pair.create(sortedRun, sortedRun.sizeInBytes));
+            sstableDensityPairs.add(Pair.create(sortedRun, sortedRun.uncompressedSizeInBytes));
         }
         return sstableDensityPairs;
     }
@@ -634,9 +631,21 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
             return Pair.create(sstablesToCompact, getLevel(sstablesToCompact));
         }
 
+        candidatesSet.removeIf(s -> s.getSSTableLevel() == 0);
+        if (candidatesSet.size() == 0) return Pair.create(sstablesToCompact, 0);
+
+        if (candidatesSet.hashCode() != cachedTree.left)
+        {
+            cachedTree = Pair.create(candidatesSet.hashCode(), SSTableIntervalTree.build(candidatesSet));
+        }
+
+        double intervalSize = cachedTree.right.min().getToken().size(cachedTree.right.max().getToken());
+        logger.trace("TRCS interval size: {}", intervalSize);
+
         // Handle sorted runs that are not dense enough yet, keep consolidating such runs until
-        // they get big enough to enter the "levels". Basically just doing STCS at this point
-        Pair<List<SortedRun>, Set<SSTableReader>> filteredRuns = filterSparseSortedRuns(candidatesSet);
+        // they get big enough to enter the "levels". Basically just doing STCS at this point but
+        // with an enforcement that we don't exceed maxReadPerRead
+        Pair<List<SortedRun>, Set<SSTableReader>> filteredRuns = filterSparseSortedRuns(candidatesSet, intervalSize);
         int numSmallRuns = flushedSSTables.size() + filteredRuns.left.size();
 
         long flushedAge = flushedSSTables.stream().mapToLong(s -> s.getCreationTimeFor(Component.DATA)).min().orElse(Long.MAX_VALUE);
@@ -658,7 +667,7 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
             else
             {
                 List<Pair<SortedRun, Long>> sparseRunsBySize = filteredRuns.left.stream()
-                                                                                .map(sr -> Pair.create(sr, sr.sizeInBytes))
+                                                                                .map(sr -> Pair.create(sr, sr.uncompressedSizeInBytes))
                                                                                 .collect(Collectors.toList());
                 List<List<SortedRun>> buckets = SizeTieredCompactionStrategy.getBuckets(sparseRunsBySize,
                                                                                         targetReadOptions.levelBucketHigh,
@@ -669,8 +678,8 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
                     if (bucket.size() > minThreshold)
                     {
                         if (candidate == null) candidate = bucket;
-                        long candidateSize = candidate.stream().mapToLong(sr -> sr.sizeInBytes).sum();
-                        long bucketSize = bucket.stream().mapToLong(sr -> sr.sizeInBytes).sum();
+                        long candidateSize = candidate.stream().mapToLong(sr -> sr.uncompressedSizeInBytes).sum();
+                        long bucketSize = bucket.stream().mapToLong(sr -> sr.uncompressedSizeInBytes).sum();
                         if (bucketSize > candidateSize) candidate = bucket;
                     }
                 }
@@ -687,7 +696,9 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
 
         // The Primary "Target Read" part of the algorithm. Now we consider levels to be sorted runs
         // and look for overlapping runs, bucketed by density (size / |range|)
-        sstablesToCompact = sortedRunToSSTables(findOverlappingSSTables(filteredRuns.left, filteredRuns.right));
+        sstablesToCompact = sortedRunToSSTables(findOverlappingSSTables(filteredRuns.left,
+                                                                        filteredRuns.right,
+                                                                        intervalSize));
         if (sstablesToCompact.size() > 1)
         {
             long readReduction = sstablesToCompact.stream().mapToInt(SSTableReader::getSSTableLevel).distinct().count();

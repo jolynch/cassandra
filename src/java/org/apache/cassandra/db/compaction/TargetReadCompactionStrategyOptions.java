@@ -25,7 +25,7 @@ import org.apache.cassandra.exceptions.ConfigurationException;
 public final class TargetReadCompactionStrategyOptions
 {
     protected static final long DEFAULT_WORK_UNIT_MULTIPLE = 16;
-    protected static final long DEFAULT_TARGET_SSTABLE_SIZE = 1000L;
+    protected static final long DEFAULT_TARGET_SSTABLE_SIZE = 500L;
     protected static final int DEFAULT_TARGET_READ_PER_READ = 4;
     protected static final long DEFAULT_TARGET_REWRITE_INTERVAL_SECONDS = 60 * 60; // 60 minutes
     protected static final int DEFAULT_MAX_READ_PER_READ = 12;

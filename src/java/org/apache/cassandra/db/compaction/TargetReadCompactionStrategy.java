@@ -45,7 +45,6 @@ import org.apache.cassandra.db.lifecycle.SSTableIntervalTree;
 import org.apache.cassandra.db.lifecycle.SSTableSet;
 import org.apache.cassandra.db.lifecycle.View;
 import org.apache.cassandra.dht.AbstractBounds;
-import org.apache.cassandra.dht.Bounds;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
@@ -231,19 +230,12 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
     }
 
     @VisibleForTesting
-    static double calculateIntervalSize(Set<SSTableReader> sstables)
+    static double calculateIntervalSize(List<AbstractBounds<PartitionPosition>> sortedBoundsByFirst)
     {
-        List<SSTableReader> sortedByFirst = Lists.newArrayList(sstables);
-        sortedByFirst.sort(Comparator.comparing(s -> s.first));
-
-        List<AbstractBounds<PartitionPosition>> bounds = sortedByFirst.stream()
-                                                         .map(s -> AbstractBounds.bounds(s.first, true, s.last, true))
-                                                         .collect(Collectors.toList());
-
         // Essentially "non overlapping ranges". We're just interested in finding the range of keys this
         // node holds so we can normalize densities to that.
         double intervalSize = 0.0;
-        PeekingIterator<AbstractBounds<PartitionPosition>> it = Iterators.peekingIterator(bounds.iterator());
+        PeekingIterator<AbstractBounds<PartitionPosition>> it = Iterators.peekingIterator(sortedBoundsByFirst.iterator());
         while (it.hasNext())
         {
             AbstractBounds<PartitionPosition> beginBound = it.next();
@@ -257,40 +249,55 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
     }
 
     @VisibleForTesting
-    static List<AbstractBounds<PartitionPosition>> findWorkRanges(Set<SSTableReader> sstables, double targetRangeSize)
+    static List<AbstractBounds<PartitionPosition>> findWorkRanges(List<AbstractBounds<PartitionPosition>> ranges,
+                                                                  double targetRangeSize)
     {
         logger.trace("Splitting interval into {} size", targetRangeSize);
         List<AbstractBounds<PartitionPosition>> workRanges = Lists.newArrayListWithCapacity(targetRangeSpits);
-        List<PartitionPosition> allEndpoints = new ArrayList<>(2 * sstables.size());
-        for (SSTableReader sstable: sstables)
+
+        List<PartitionPosition> starts = Lists.newArrayListWithCapacity(ranges.size());
+        List<PartitionPosition> ends = Lists.newArrayListWithCapacity(ranges.size());
+        for (AbstractBounds<PartitionPosition> range: ranges)
         {
-            allEndpoints.add(sstable.first);
-            allEndpoints.add(sstable.last);
+            starts.add(range.left);
+            ends.add(range.right);
         }
-        Collections.sort(allEndpoints);
+        Collections.sort(starts);
+        Collections.sort(ends);
 
-        PartitionPosition start = null;
-        PartitionPosition end = null;
-        for (PartitionPosition pos: allEndpoints)
+        PartitionPosition workStart = starts.get(0);
+        PartitionPosition workEnd = ends.get(0);
+        int startPos = 0;
+        for (int i = 0; i < ends.size(); i++)
         {
-            if (start == null) start = pos;
-            end = pos;
-
-            if (end.compareTo(start) > 0 && start.getToken().size(end.getToken()) >= targetRangeSize)
+            workEnd = ends.get(i);
+            // Always advance the start pointer (but not workStart) to the first start greater than the end
+            while (startPos < starts.size() - 1 && starts.get(startPos).getToken().compareTo(workEnd.getToken()) <= 0)
             {
-                workRanges.add(AbstractBounds.bounds(start, true, end, true));
-                start = end;
+                startPos++;
+            }
+
+            if (!starts.get(startPos).equals(workStart) &&
+                workStart.getToken().size(workEnd.getToken()) >= targetRangeSize)
+            {
+                workRanges.add(AbstractBounds.bounds(workStart, true, workEnd, true));
+                workStart = starts.get(startPos);
             }
         }
-        if (start != null && end.compareTo(start) > 0)
-            workRanges.add(AbstractBounds.bounds(start, true, end, true));
+
+        // Add in the last range, potentially extending it to cover to the end
+        if (workRanges.size() > 0 && workRanges.get(workRanges.size() - 1).left.equals(workStart))
+        {
+            workRanges.remove(workRanges.size() - 1);
+        }
+        workRanges.add(AbstractBounds.bounds(workStart, true, workEnd, true));
 
         return workRanges;
     }
 
     private List<SortedRun> findOverlappingSSTables(List<SortedRun> smallRuns,
                                                     Set<SSTableReader> overlapCandidates,
-                                                    double intervalSize)
+                                                    List<AbstractBounds<PartitionPosition>> bounds)
     {
         Set<Integer> smallRunLevels = smallRuns.stream().map(sr -> sr.level).collect(Collectors.toSet());
         Set<SSTableReader> allSSTables = Sets.union(new HashSet<>(sortedRunToSSTables(smallRuns)), overlapCandidates);
@@ -306,8 +313,11 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
 
         SSTableIntervalTree tree = cachedTree.right;
 
+        // The split ranges just look at the overall covered range
+        double intervalSize = tree.min().getToken().size(tree.max().getToken());
         logger.trace("TRCS operating on interval of size {}", intervalSize);
-        List<AbstractBounds<PartitionPosition>> workRanges = findWorkRanges(allSSTables, intervalSize / targetRangeSpits);
+        List<AbstractBounds<PartitionPosition>> workRanges = findWorkRanges(bounds,
+                                                                            intervalSize / targetRangeSpits);
         logger.trace("TRCS found {} work ranges", workRanges.size());
         logger.trace("TRCS current time of {} and next major compaction allowed after {}", now, nextMajorCompactionTime);
         List<Pair<List<SortedRun>, Double>> candidateScores = new ArrayList<>();
@@ -625,7 +635,7 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         // disturb high density levels. Note that if data shrinks significantly and we shift back down
         // this could cause neighboring runs to compact together.
         long datasetSize = liveSet.stream().mapToLong(SSTableReader::uncompressedLength).sum();
-        int targetSplits = (int) Math.max(65536, Math.min(1, datasetSize / targetReadOptions.targetWorkSizeInBytes));
+        int targetSplits = (int) Math.min(65536, Math.max(1, datasetSize / targetReadOptions.targetWorkSizeInBytes));
         int nextSplits = 1 << 32 - Integer.numberOfLeadingZeros(targetSplits - 1);
         if (nextSplits > targetRangeSpits)
         {
@@ -663,13 +673,18 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
 
         candidatesSet.removeIf(s -> s.getSSTableLevel() == 0);
         if (candidatesSet.size() == 0) return Pair.create(sstablesToCompact, 0);
-
         if (candidatesSet.hashCode() != cachedTree.left)
         {
             cachedTree = Pair.create(candidatesSet.hashCode(), SSTableIntervalTree.build(candidatesSet));
         }
 
-        double intervalSize = calculateIntervalSize(candidatesSet);
+        List<SSTableReader> sortedByFirst = Lists.newArrayList(candidatesSet);
+        sortedByFirst.sort(Comparator.comparing(s -> s.first));
+
+        List<AbstractBounds<PartitionPosition>> bounds = sortedByFirst.stream()
+                                                                      .map(s -> AbstractBounds.bounds(s.first, true, s.last, true))
+                                                                      .collect(Collectors.toList());
+        double intervalSize = calculateIntervalSize(bounds);
         logger.trace("TRCS interval size: {}", intervalSize);
 
         // Handle sorted runs that are not dense enough yet, keep consolidating such runs until
@@ -728,7 +743,7 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         // and look for overlapping runs, bucketed by density (size / |range|)
         sstablesToCompact = sortedRunToSSTables(findOverlappingSSTables(filteredRuns.left,
                                                                         filteredRuns.right,
-                                                                        intervalSize));
+                                                                        bounds));
         if (sstablesToCompact.size() > 1)
         {
             long readReduction = sstablesToCompact.stream().mapToInt(SSTableReader::getSSTableLevel).distinct().count();

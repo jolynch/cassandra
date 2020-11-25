@@ -63,6 +63,7 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
     private static final Integer CONSOLIDATION_COMPACTION = -1;
     private static final Integer TOMBSTONE_COMPACTION = -2;
     private static final Double MAJOR_COMPACTION = Double.MAX_VALUE;
+    private static final Integer MAX_SPLITS = 4096;
 
     // Static purely so we don't loose these on options changes, if we loose them on restarts
     // that's ok. The only one we might care about keeping across restarts would be
@@ -157,7 +158,7 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         this.cachedTree = Pair.create(Collections.emptySet().hashCode(), SSTableIntervalTree.empty());
         this.cachedScores = Pair.create(Collections.emptySet().hashCode(), Collections.emptyList());
 
-        int initialSplit = (int) Math.min(1,
+        int initialSplit = (int) Math.min(MAX_SPLITS,
                                           targetReadOptions.targetWorkSizeInBytes /
                                           targetReadOptions.targetSSTableSizeBytes);
         targetRangeSplits = Math.max(targetRangeSplits, initialSplit);
@@ -702,7 +703,7 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         // monotonically increasing but just to prevent too much movement such that our major compaction
         // work estimates are somewhat consistent
         long datasetSize = liveSet.stream().mapToLong(SSTableReader::uncompressedLength).sum();
-        int targetSplits = (int) Math.min(1, Math.max(1, datasetSize / targetReadOptions.targetWorkSizeInBytes));
+        int targetSplits = (int) Math.min(MAX_SPLITS, Math.max(1, datasetSize / targetReadOptions.targetWorkSizeInBytes));
         int nextSplits = 1 << 32 - Integer.numberOfLeadingZeros(targetSplits - 1);
         if (nextSplits > targetRangeSplits)
         {
@@ -1024,7 +1025,7 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
 
     public String toString()
     {
-        return String.format("TargetReadCompactionStrategy[%d mb segment:%d mb compactions:%d splits]",
+        return String.format("TargetReadCompactionStrategy[%dMiB files:%dMiB compaction:%d splits]",
                              targetSSTableSizeBytes / (1024 * 1024),
                              targetReadOptions.targetWorkSizeInBytes / (1024 * 1024),
                              targetRangeSplits);

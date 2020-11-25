@@ -18,6 +18,7 @@
 package org.apache.cassandra.db.compaction;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 
 import org.apache.cassandra.exceptions.ConfigurationException;
@@ -25,9 +26,10 @@ import org.apache.cassandra.exceptions.ConfigurationException;
 public final class TargetReadCompactionStrategyOptions
 {
     protected static final long DEFAULT_WORK_UNIT_MULTIPLE = 16;
+    protected static final long DEFAULT_MIN_SSTABLE_SIZE = 50L;
     protected static final long DEFAULT_TARGET_SSTABLE_SIZE = 500L;
     protected static final int DEFAULT_TARGET_READ_PER_READ = 4;
-    protected static final long DEFAULT_TARGET_REWRITE_INTERVAL_SECONDS = 60 * 60; // 60 minutes
+    protected static final long DEFAULT_TARGET_REWRITE_INTERVAL_SECONDS = 2 * 60 * 60; // 2 hours
     protected static final int DEFAULT_MAX_READ_PER_READ = 12;
     protected static final long DEFAULT_MAX_COUNT = 2000;
 
@@ -38,6 +40,7 @@ public final class TargetReadCompactionStrategyOptions
 
 
     protected static final String TARGET_WORK_UNIT = "target_work_unit_in_mb";
+    protected static final String MIN_SSTABLE_SIZE = "min_sstable_size_in_mb";
     protected static final String TARGET_SSTABLE_SIZE = "target_sstable_size_in_mb";
     protected static final String TARGET_READ_PER_READ = "target_read_per_read";
     protected static final String TARGET_REWRITE_INTERVAL_SECS = "target_rewrite_interval_in_seconds";
@@ -49,6 +52,7 @@ public final class TargetReadCompactionStrategyOptions
     protected static final String LEVEL_BUCKET_LOW = "level_bucket_low";
     protected static final String LEVEL_BUCKET_HIGH = "level_bucket_high";
 
+    protected final long minSSTableSizeBytes;
     protected final long targetWorkSizeInBytes;
     protected final long targetSSTableSizeBytes;
     protected final int targetReadPerRead;
@@ -63,6 +67,7 @@ public final class TargetReadCompactionStrategyOptions
 
     public TargetReadCompactionStrategyOptions(Map<String, String> options)
     {
+        minSSTableSizeBytes = parseLong(options, MIN_SSTABLE_SIZE, DEFAULT_MIN_SSTABLE_SIZE) * 1024 * 1024;
         long targetSSTableSizeInMb = parseLong(options, TARGET_SSTABLE_SIZE, DEFAULT_TARGET_SSTABLE_SIZE);
         targetSSTableSizeBytes =  targetSSTableSizeInMb * 1024L * 1024L;
         // Default to some relatively large multiple of the SSTable size,
@@ -126,12 +131,24 @@ public final class TargetReadCompactionStrategyOptions
 
     public static Map<String, String> validateOptions(Map<String, String> options, Map<String, String> uncheckedOptions) throws ConfigurationException
     {
-        long targetSSTableSizeMb = parseLong(options, TARGET_SSTABLE_SIZE, DEFAULT_TARGET_SSTABLE_SIZE);
+        long minSSTableSizeBytes = parseLong(options, MIN_SSTABLE_SIZE, DEFAULT_MIN_SSTABLE_SIZE) * 1024 * 1024;
+        if (minSSTableSizeBytes < 0)
+        {
+            throw new ConfigurationException(String.format("%s must be non negative: %d", MIN_SSTABLE_SIZE, minSSTableSizeBytes));
+        }
 
+        long targetSSTableSizeMb = parseLong(options, TARGET_SSTABLE_SIZE, DEFAULT_TARGET_SSTABLE_SIZE);
         long targetSSTableSize = targetSSTableSizeMb * 1024 * 1024;
         if (targetSSTableSize < 0)
         {
             throw new ConfigurationException(String.format("%s must be non negative: %d", TARGET_SSTABLE_SIZE, targetSSTableSize));
+        }
+        if (minSSTableSizeBytes > targetSSTableSize)
+        {
+            throw new ConfigurationException(String.format("%s should not be larger than %s, %s > %s." +
+                                                           "Consider increasing %s",
+                                                           MIN_SSTABLE_SIZE, TARGET_SSTABLE_SIZE,
+                                                           minSSTableSizeBytes, minSSTableSizeBytes, TARGET_SSTABLE_SIZE));
         }
 
         long targetWorkUnit = parseLong(options, TARGET_WORK_UNIT, DEFAULT_WORK_UNIT_MULTIPLE * targetSSTableSizeMb) * 1024 * 1024;
@@ -192,6 +209,9 @@ public final class TargetReadCompactionStrategyOptions
             throw new ConfigurationException(String.format("%s must be non negative: %d", MAX_LEVEL_AGE_SECS, maxLevelAgeSeconds));
         }
 
+        uncheckedOptions = new HashMap<>(options);
+
+        uncheckedOptions.remove(MIN_SSTABLE_SIZE);
         uncheckedOptions.remove(TARGET_WORK_UNIT);
         uncheckedOptions.remove(TARGET_SSTABLE_SIZE);
         uncheckedOptions.remove(TARGET_READ_PER_READ);

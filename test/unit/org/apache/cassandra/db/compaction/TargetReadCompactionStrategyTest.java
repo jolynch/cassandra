@@ -19,21 +19,26 @@
 package org.apache.cassandra.db.compaction;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+
 import junit.framework.TestCase;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.PartitionPosition;
+import org.apache.cassandra.db.compaction.TargetReadCompactionStrategy.SortedRun;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.dht.Bounds;
 import org.apache.cassandra.dht.Murmur3Partitioner;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.Interval;
 import org.apache.cassandra.utils.IntervalTree;
+
+import static org.apache.cassandra.db.compaction.TargetReadCompactionStrategy.calculateScore;
 
 public class TargetReadCompactionStrategyTest extends TestCase
 {
@@ -86,6 +91,67 @@ public class TargetReadCompactionStrategyTest extends TestCase
         }
 
         assertTrue(lookups.containsAll(ranges));
+    }
+
+    private SortedRun createRuns(long size, double keySize)
+    {
+        List<DecoratedKey> keys = new ArrayList<>(1000);
+        for (int i = 0; i < 1000; i ++)
+        {
+            DecoratedKey dk = Murmur3Partitioner.instance.decorateKey(ByteBufferUtil.bytes("key_" + i));
+            keys.add(dk);
+        }
+        Collections.sort(keys);
+
+        return new SortedRun(size * 2, size,
+                                                          keys.get(0), keys.get((int)keySize * (keys.size() - 1)),
+                                                          0);
+    }
+
+    public void testScores()
+    {
+        SortedRun run1 = createRuns(1024 * 1024 * 10, 1.0);
+        SortedRun run2 = createRuns(1024 * 1024 * 10, 1.0);
+        SortedRun run3 = createRuns(1024 * 1024 * 10, 1.0);
+        SortedRun run4 = createRuns(1024 * 1024 * 10, 1.0);
+        List<SortedRun> sparse2 = Arrays.asList(run1, run2);
+        List<SortedRun> sparse4 = Arrays.asList(run1, run2, run3, run4);
+
+        SortedRun mediumRun1 = createRuns(1024 * 1024 * 25, 1.0);
+        SortedRun mediumRun2 = createRuns(1024 * 1024 * 25, 1.0);
+        List<SortedRun> medium2 = Arrays.asList(mediumRun1, mediumRun2);
+
+
+        SortedRun denseRun1 = createRuns(1024 * 1024 * 1000, 1.0);
+        SortedRun denseRun2 = createRuns(1024 * 1024 * 1000, 1.0);
+        SortedRun denseRun3 = createRuns(1024 * 1024 * 1000, 1.0);
+        List<SortedRun> dense2 = Arrays.asList(denseRun1, denseRun2);
+        List<SortedRun> dense3 = Arrays.asList(denseRun1, denseRun2, denseRun3);
+
+        double sparseScore = calculateScore(sparse2, 2, v -> true, 10);
+        double denseScore = calculateScore(dense2, 2, v -> true, 10);
+
+        assertTrue("Sparse runs should be preferred", sparseScore > denseScore);
+
+        denseScore = calculateScore(dense3, 1, v -> true, 10);
+        assertTrue("Sparse runs should be preferred", sparseScore > denseScore);
+
+
+        sparseScore = calculateScore(sparse4, 2, v -> true, 10);
+        denseScore = calculateScore(medium2, 2, v -> true, 10);
+        assertTrue("4 small sparse runs should be preferred to 2 medium ones", sparseScore > denseScore);
+
+        sparseScore = calculateScore(sparse4, 2, v -> true, 10);
+        denseScore = calculateScore(medium2, 20, v -> true, 10);
+        assertTrue("Work in highly overlapping regions should be preferred", denseScore > sparseScore);
+
+        run1 = createRuns(1024 * 1024 * 1000, 1.0);
+        run2 = createRuns(1024 * 1024 * 1000, 1.0);
+        denseRun1 = createRuns(1024 * 1024 * 1000, 0.5);
+        denseRun2 = createRuns(1024 * 1024 * 1000, 0.5);
+        sparseScore = calculateScore( Arrays.asList(run1, run2), 2, v -> true, 10);
+        denseScore = calculateScore(Arrays.asList(denseRun1, denseRun2), 2, v -> true, 10);
+        assertTrue("Sparse runs should be preferred", sparseScore > denseScore);
     }
 
 }

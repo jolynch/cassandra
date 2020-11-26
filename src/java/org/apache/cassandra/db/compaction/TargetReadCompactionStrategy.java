@@ -909,6 +909,7 @@ public class TargetReadCompactionStrategy extends AbstractCompactionStrategy
         double ratio = (double) estimatedCombinedCount / (double) totalCount;
         long targetSize = Math.max(targetReadOptions.minSSTableSizeBytes,
                                    Math.round(((totalSize * ratio) / targetRangeSplits)));
+        targetSize = Math.min(targetSSTableSizeBytes, targetSize);
         logger.debug("TRCS splitting sparse run yielding {} sstables of size {}MiB with ratio {}",
                      totalSize / targetSize, targetSize / (1024 * 1024), ratio);
         return targetSize;

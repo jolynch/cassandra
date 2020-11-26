@@ -33,7 +33,7 @@ public final class TargetReadCompactionStrategyOptions
     protected static final int DEFAULT_MAX_READ_PER_READ = 12;
     protected static final long DEFAULT_MAX_COUNT = 2000;
 
-    protected static final int DEFAULT_MIN_THRESHOLD_LEVELS = 2;
+    protected static final int DEFAULT_MIN_THRESHOLD_LEVELS = 4;
     protected static final int DEFAULT_MAX_LEVEL_AGE_SECONDS = 60 * 60 * 24 * 10;  // 10 days
     protected static final double DEFAULT_LEVEL_BUCKET_LOW = 0.75;
     protected static final double DEFAULT_LEVEL_BUCKET_HIGH = 1.25;
@@ -211,6 +211,7 @@ public final class TargetReadCompactionStrategyOptions
 
         uncheckedOptions = new HashMap<>(options);
 
+        uncheckedOptions.remove(MIN_THRESHOLD_LEVELS);
         uncheckedOptions.remove(MIN_SSTABLE_SIZE);
         uncheckedOptions.remove(TARGET_WORK_UNIT);
         uncheckedOptions.remove(TARGET_SSTABLE_SIZE);
@@ -219,6 +220,8 @@ public final class TargetReadCompactionStrategyOptions
         uncheckedOptions.remove(MAX_SSTABLE_COUNT);
         uncheckedOptions.remove(MAX_READ_PER_READ);
         uncheckedOptions.remove(MAX_LEVEL_AGE_SECS);
+        uncheckedOptions.remove(LEVEL_BUCKET_LOW);
+        uncheckedOptions.remove(LEVEL_BUCKET_HIGH);
 
         return uncheckedOptions;
     }

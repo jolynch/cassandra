@@ -66,17 +66,16 @@ public class GeneralCompactionStrategy extends AbstractCompactionStrategy
     private static final Integer MAX_SPLITS = 4096;
 
     // Static purely so we don't loose these on options changes, if we loose them on restarts
-    // that's ok. The only one we might care about keeping across restarts would be
-    // targetRangeSplits.
+    // that's ok.
     protected static volatile long majorCompactionGoalSetAt = 0;
     protected static volatile long nextMajorCompactionTime = 0;
     protected static AtomicLong pendingMajors = new AtomicLong(0);
+    protected static int targetRangeSplits;
 
     protected final ReentrantLock selectionLock = new ReentrantLock();
     protected GeneralCompactionStrategyOptions compactionOptions;
     protected volatile int estimatedRemainingTasks;
     protected long targetSSTableSizeBytes;
-    protected int targetRangeSplits;
     protected volatile Pair<Integer, SSTableIntervalTree> cachedTree;
     protected volatile Pair<Integer, List<Pair<List<SortedRun>, Double>>> cachedScores;
     protected Comparator<Pair<List<SortedRun>, Double>> scoreComparator = Comparator.<Pair<List<SortedRun>, Double>>
@@ -93,20 +92,22 @@ public class GeneralCompactionStrategy extends AbstractCompactionStrategy
         public final long uncompressedSizeInBytes;
         public final long sizeOnDiskInBytes;
         public final double keyRangeSize;
-        public final long createdAt;
+        public final long createdAtMillis;
+        public final long maxTimestampMillis;
         public final int level;
 
         @VisibleForTesting
-        SortedRun(long uncompressedSize, long onDiskSize, DecoratedKey first, DecoratedKey last, long createdAt)
+        SortedRun(long uncompressedSize, long onDiskSize, DecoratedKey first, DecoratedKey last, long createdAtMillis)
         {
             this.first = first;
             this.last = last;
             this.uncompressedSizeInBytes = uncompressedSize;
             this.sizeOnDiskInBytes = onDiskSize;
             this.keyRangeSize = first.getToken().size(last.getToken());
-            this.createdAt = createdAt;
+            this.createdAtMillis = createdAtMillis;
             this.level = 0;
             this.sstables = Collections.emptyList();
+            this.maxTimestampMillis = createdAtMillis + 1000;
         }
 
         SortedRun(Set<SSTableReader> sstables)
@@ -122,17 +123,20 @@ public class GeneralCompactionStrategy extends AbstractCompactionStrategy
             long onDiskSizeInBytes = 0;
             double keyRangeSize = 0;
             long createdAt = Long.MAX_VALUE;
+            long maxTimestamp = Long.MIN_VALUE;
             for (SSTableReader sst: this.sstables)
             {
                 sizeInBytes += sst.uncompressedLength();
                 onDiskSizeInBytes += sst.onDiskLength();
                 keyRangeSize += sst.first.getToken().size(sst.last.getToken());
                 createdAt = Math.min(createdAt, sst.getCreationTimeFor(Component.DATA));
+                maxTimestamp = Math.max(maxTimestamp, sst.getMaxTimestamp());
             }
             this.uncompressedSizeInBytes = sizeInBytes;
             this.sizeOnDiskInBytes = onDiskSizeInBytes;
             this.keyRangeSize = Math.min(1.0, keyRangeSize);
-            this.createdAt = createdAt;
+            this.createdAtMillis = createdAt;
+            this.maxTimestampMillis = maxTimestamp;
         }
 
         public String toString()
@@ -142,7 +146,7 @@ public class GeneralCompactionStrategy extends AbstractCompactionStrategy
                    ", count=" + sstables.size() +
                    ", sizeInMiB=" + uncompressedSizeInBytes / (1024 * 1024) +
                    ", keyRangeSize=" + keyRangeSize +
-                   ", createdAt=" + createdAt +
+                   ", createdAt=" + createdAtMillis +
                    '}';
         }
     }
@@ -190,13 +194,13 @@ public class GeneralCompactionStrategy extends AbstractCompactionStrategy
         // (assuming they all span the whole token range) such that we may exceed the maxReadPerRead
         //
         // With a 8GiB heap with default settings flushes yield ~225 MiB sstables (2GiB * 0.11). With
-        // the defaults of target=512MiB, minThreshold=4, targetRead=4 and maxRead=12 this will almost always
-        // yield a compaction after ~8 flushes. The only time we expect to hit the first condition is on write
+        // the defaults of target=512MiB, minThresholdLevels=4, and maxRead=10 this will almost always
+        // yield a compaction after ~6 flushes. The only time we expect to hit the first condition is on write
         // heavy large clusters that have increased maxReadPerRead or on STCS converting to GCS
-        boolean sizeEligible = (size > (targetSSTableSizeBytes * minThreshold)) ||
+        boolean sizeEligible = (size > compactionOptions.targetSSTableSizeBytes * minThreshold) ||
                                ((recentlyFlushed.size() + compactionOptions.minThresholdLevels) >= compactionOptions.maxReadPerRead);
 
-        if (recentlyFlushed.size() >= minThreshold && sizeEligible || recentlyFlushed.size() >= maxThreshold)
+        if ((recentlyFlushed.size() >= minThreshold && sizeEligible) || recentlyFlushed.size() >= maxThreshold)
             return Pair.create(recentlyFlushed, recentlyFlushed.stream().limit(maxThreshold).collect(Collectors.toList()));
 
         return Pair.create(recentlyFlushed, Collections.emptyList());
@@ -232,8 +236,7 @@ public class GeneralCompactionStrategy extends AbstractCompactionStrategy
         logger.trace("Found {} sparse runs: {}", sparseRuns.size(), sparseRuns);
         logger.trace("Found {} dense runs : {}", denseRuns.size(), denseRuns);
 
-        Set<SSTableReader> toPassOn = new HashSet<>(sortedRunToSSTables(denseRuns));
-        return Pair.create(sparseRuns, toPassOn);
+        return Pair.create(sparseRuns, new HashSet<>(sortedRunToSSTables(denseRuns)));
     }
 
     private List<SSTableReader> findSmallSSTables(Set<SSTableReader> sizeCandidates, long now)
@@ -441,7 +444,7 @@ public class GeneralCompactionStrategy extends AbstractCompactionStrategy
         }
 
         // Edge case where we can't find any density candidates but we're still over
-        // maxReadPerRead so just find targetReadPerRead smallest runs and compact them
+        // maxReadPerRead so just find minThresholdLevels smallest runs and compact them
         if (bucketsFound == 0 &&
             runs.size() > compactionOptions.maxReadPerRead)
         {
@@ -466,7 +469,7 @@ public class GeneralCompactionStrategy extends AbstractCompactionStrategy
     {
         if (runs.size() < 2 || now < nextMajorCompactionTime) return Collections.emptyList();
 
-        runs.sort(Comparator.comparing(r -> r.left.createdAt));
+        runs.sort(Comparator.comparing(r -> r.left.createdAtMillis));
         List<SortedRun> bucket = new ArrayList<>();
         List<Pair<List<SortedRun>, Double>> candidates = new ArrayList<>();
 
@@ -474,17 +477,17 @@ public class GeneralCompactionStrategy extends AbstractCompactionStrategy
         for (int i = runs.size(); i-- > 0;)
         {
             run = runs.get(i).left;
-            if (run.createdAt < majorCompactionGoalSetAt)
+            if (run.createdAtMillis < majorCompactionGoalSetAt)
             {
                 bucket.add(run);
                 logger.debug("Found full compaction candidate: {}", run);
                 continue;
             }
-            if (run.createdAt < (now - (compactionOptions.maxLevelAgeSeconds * 1000)))
+            if (run.createdAtMillis < (now - (compactionOptions.maxLevelAgeSeconds * 1000)))
             {
                 bucket.add(run);
-                logger.debug("Found old run {}. Mixing with newer data due to {} of {}. If this is undesirable" +
-                             "set {} to 0.",
+                logger.debug("Found old run {}. Mixing with newer data due to {} of {}. If this is undesirable " +
+                             "set {} to 0 to disable.",
                              run,
                              GeneralCompactionStrategyOptions.MAX_LEVEL_AGE_SECS,
                              compactionOptions.maxLevelAgeSeconds,
@@ -765,32 +768,51 @@ public class GeneralCompactionStrategy extends AbstractCompactionStrategy
         // Handle sorted runs that are not dense enough yet, keep consolidating such runs until
         // they get big enough to enter the "levels". Basically just doing STCS at this point but
         // with an enforcement that we don't exceed maxReadPerRead
-        Pair<List<SortedRun>, Set<SSTableReader>> filteredRuns = filterSparseSortedRuns(candidatesSet, intervalSize);
-        int numSmallRuns = flushedSSTables.size() + filteredRuns.left.size();
-        long sparseAge = filteredRuns.left.stream().mapToLong(sr -> sr.createdAt).min().orElse(Long.MAX_VALUE);
+        Pair<List<SortedRun>, Set<SSTableReader>> sparseAndDenseRuns = filterSparseSortedRuns(candidatesSet, intervalSize);
+        int numSparseRuns = flushedSSTables.size() + sparseAndDenseRuns.left.size();
 
-        if (numSmallRuns > minThreshold ||
-            (numSmallRuns > 1 && numSmallRuns > compactionOptions.maxReadPerRead) ||
-            (numSmallRuns > 1 && sparseAge < (now - compactionOptions.targetConsolidateIntervalSeconds)))
+        SortedRun oldestRun = null;
+        for (SortedRun sr: sparseAndDenseRuns.left)
+        {
+            if (oldestRun == null) oldestRun = sr;
+            if (sr.maxTimestampMillis < oldestRun.maxTimestampMillis) oldestRun = sr;
+        }
+        long deadlineMillis = compactionOptions.targetConsolidateIntervalSeconds * 1000;
+        boolean deadlineEligible = deadlineMillis > 0 && oldestRun != null &&
+                                   // Don't want to just recompact old runs continuously ...
+                                   oldestRun.createdAtMillis < (now - deadlineMillis) &&
+                                   oldestRun.maxTimestampMillis < (now - deadlineMillis);
+
+        if (numSparseRuns > minThreshold ||
+            (sparseAndDenseRuns.left.size() > compactionOptions.maxReadPerRead) ||
+            (numSparseRuns > 1 && deadlineEligible))
         {
             List<SortedRun> candidate = null;
 
-            // If we've got a lot of small runs or have hit the deadline we need to consolidate them regardless of
+            // If we've got too many small runs or have hit the deadline we need to consolidate them regardless of
             // the large runs
-            if (numSmallRuns > compactionOptions.maxReadPerRead)
+            if (sparseAndDenseRuns.left.size() > compactionOptions.maxReadPerRead)
             {
                 logger.trace("Compacting all sparse runs due to {}", GeneralCompactionStrategyOptions.MAX_READ_PER_READ);
-                candidate = filteredRuns.left;
+                candidate = sparseAndDenseRuns.left;
             }
-            else if (sparseAge < (now - compactionOptions.targetConsolidateIntervalSeconds))
+            else if (deadlineEligible)
             {
-                logger.trace("Compacting all sparse runs due to {}",
-                             GeneralCompactionStrategyOptions.TARGET_CONSOLIDATE_INTERVAL_SECS);
-                candidate = filteredRuns.left;
+                logger.debug("Compacting all sparse runs with data newer than {} due to {} of {} seconds." +
+                             "Set to 0 to disable.",
+                             oldestRun.maxTimestampMillis,
+                             GeneralCompactionStrategyOptions.TARGET_CONSOLIDATE_INTERVAL_SECS,
+                             deadlineMillis / 1000);
+                candidate = new ArrayList<>();
+                candidate.add(oldestRun);
+                for (SortedRun sr : sparseAndDenseRuns.left)
+                {
+                    if (sr.maxTimestampMillis > oldestRun.maxTimestampMillis) candidate.add(sr);
+                }
             }
             else
             {
-                List<Pair<SortedRun, Long>> sparseRunsBySize = filteredRuns.left.stream()
+                List<Pair<SortedRun, Long>> sparseRunsBySize = sparseAndDenseRuns.left.stream()
                                                                                 .map(sr -> Pair.create(sr, sr.uncompressedSizeInBytes))
                                                                                 .collect(Collectors.toList());
                 List<List<SortedRun>> buckets = SizeTieredCompactionStrategy.getBuckets(sparseRunsBySize,
@@ -811,8 +833,9 @@ public class GeneralCompactionStrategy extends AbstractCompactionStrategy
                 }
             }
 
-            if (candidate != null)
+            if (candidate != null && (candidate.size() + flushedSSTables.size()) > 1)
             {
+                candidate.sort(Comparator.comparing(sr -> sr.uncompressedSizeInBytes));
                 sstablesToCompact = sortedRunToSSTables(candidate.stream().limit(maxThreshold).collect(Collectors.toList()));
                 sstablesToCompact.addAll(flushedSSTables.stream().limit(maxThreshold).collect(Collectors.toList()));
                 logger.debug("GCS consolidating compaction of {} sparse runs: {}", candidate.size(), sstablesToCompact);
@@ -822,7 +845,7 @@ public class GeneralCompactionStrategy extends AbstractCompactionStrategy
 
         // The leveling part of the algorithm. Now instead of considering full interval runs, consider levels to be
         // sorted runs and look for overlapping runs, bucketed by density (size / |range|)
-        sstablesToCompact = findOverlappingSSTables(filteredRuns.left, filteredRuns.right, bounds, now);
+        sstablesToCompact = findOverlappingSSTables(sparseAndDenseRuns.left, sparseAndDenseRuns.right, bounds, now);
         if (sstablesToCompact.size() > 1)
         {
             long readReduction = sstablesToCompact.stream().mapToInt(SSTableReader::getSSTableLevel).distinct().count();
@@ -940,9 +963,9 @@ public class GeneralCompactionStrategy extends AbstractCompactionStrategy
 
         try
         {
-            logger.info("TargetReadCompactionStrategy does not support fully blocking compactions. Immediately " +
+            logger.info("GeneralCompactionStrategy does not support fully blocking compactions. Immediately " +
                         "compacting sparse runs and informing background tasks to begin full compactions of " +
-                        "any dense runs older than {}. Will try to spread them over the {} of {} seconds.",
+                        "any dense runs older than {}. Will try to spread dense runs over the {} of {} seconds.",
                         currentTime,
                         GeneralCompactionStrategyOptions.TARGET_REWRITE_INTERVAL_SECS,
                         compactionOptions.targetRewriteIntervalSeconds);
@@ -960,7 +983,7 @@ public class GeneralCompactionStrategy extends AbstractCompactionStrategy
 
             // Immediately yield all flush products and sparse sstables. We need to get new data into the levels ASAP
             // so they can participate in the major compactions.
-            List<SSTableReader> toCompact = filteredFlushes.left;
+            Set<SSTableReader> toCompact = new HashSet<>(filteredFlushes.left);
             toCompact.addAll(sortedRunToSSTables(filteredRuns.left));
 
             LifecycleTransaction txn = cfs.getTracker().tryModify(toCompact, OperationType.COMPACTION);
@@ -984,7 +1007,9 @@ public class GeneralCompactionStrategy extends AbstractCompactionStrategy
         LifecycleTransaction transaction = cfs.getTracker().tryModify(sstables, OperationType.COMPACTION);
         if (transaction == null)
         {
-            logger.trace("Unable to mark {} for compaction; probably a background compaction got to it first.  You can disable background compactions temporarily if this is a problem", sstables);
+            logger.trace("Unable to mark {} for compaction; probably a background compaction got to it first. " +
+                         "You can disable background compactions temporarily if this is a problem",
+                         sstables);
             return null;
         }
 
@@ -1032,7 +1057,7 @@ public class GeneralCompactionStrategy extends AbstractCompactionStrategy
 
     public String toString()
     {
-        return String.format("TargetReadCompactionStrategy[%dMiB files:%dMiB compaction:%d splits]",
+        return String.format("GeneralCompactionStrategy[%dMiB files:%dMiB compaction:%d splits]",
                              targetSSTableSizeBytes / (1024 * 1024),
                              compactionOptions.targetWorkSizeInBytes / (1024 * 1024),
                              targetRangeSplits);

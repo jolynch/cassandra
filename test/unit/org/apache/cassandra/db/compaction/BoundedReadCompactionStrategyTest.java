@@ -30,7 +30,7 @@ import java.util.stream.Collectors;
 import junit.framework.TestCase;
 import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.PartitionPosition;
-import org.apache.cassandra.db.compaction.GeneralCompactionStrategy.SortedRun;
+import org.apache.cassandra.db.compaction.BoundedReadCompactionStrategy.SortedRun;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.dht.Bounds;
 import org.apache.cassandra.dht.Murmur3Partitioner;
@@ -38,9 +38,9 @@ import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.Interval;
 import org.apache.cassandra.utils.IntervalTree;
 
-import static org.apache.cassandra.db.compaction.GeneralCompactionStrategy.calculateScore;
+import static org.apache.cassandra.db.compaction.BoundedReadCompactionStrategy.calculateScore;
 
-public class GeneralCompactionStrategyTest extends TestCase
+public class BoundedReadCompactionStrategyTest extends TestCase
 {
     public void testFindWorkRanges()
     {
@@ -58,11 +58,11 @@ public class GeneralCompactionStrategyTest extends TestCase
             ranges.add(AbstractBounds.bounds(positions.get(i), true, positions.get(i+1), true));
         }
 
-        double intervalSize = GeneralCompactionStrategy.calculateIntervalSize(ranges);
+        double intervalSize = BoundedReadCompactionStrategy.calculateIntervalSize(ranges);
         assertEquals(intervalSize, 0.5, 0.01);
         double treeIntervalSize = ranges.get(0).left.getToken().size(ranges.get(ranges.size() - 1).right.getToken());
 
-        List<AbstractBounds<PartitionPosition>> splitRanges = GeneralCompactionStrategy.findWorkRanges(ranges, treeIntervalSize / 16);
+        List<AbstractBounds<PartitionPosition>> splitRanges = BoundedReadCompactionStrategy.findWorkRanges(ranges, treeIntervalSize / 16);
 
         assertEquals(16, splitRanges.size());
 

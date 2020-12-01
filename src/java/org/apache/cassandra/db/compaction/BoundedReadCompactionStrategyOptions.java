@@ -23,7 +23,7 @@ import java.util.Map;
 
 import org.apache.cassandra.exceptions.ConfigurationException;
 
-public final class GeneralCompactionStrategyOptions
+public final class BoundedReadCompactionStrategyOptions
 {
     protected static final long DEFAULT_WORK_UNIT_MULTIPLE = 16;
     protected static final long DEFAULT_MIN_SSTABLE_SIZE = 50L;
@@ -37,7 +37,6 @@ public final class GeneralCompactionStrategyOptions
     protected static final int DEFAULT_MAX_LEVEL_AGE_SECONDS = 60 * 60 * 24 * 10;  // 10 days
     protected static final double DEFAULT_LEVEL_BUCKET_LOW = 0.75;
     protected static final double DEFAULT_LEVEL_BUCKET_HIGH = 1.25;
-
 
     protected static final String TARGET_WORK_UNIT = "target_work_unit_in_mb";
     protected static final String MIN_SSTABLE_SIZE = "min_sstable_size_in_mb";
@@ -65,7 +64,7 @@ public final class GeneralCompactionStrategyOptions
     protected final double levelBucketLow;
     protected final double levelBucketHigh;
 
-    public GeneralCompactionStrategyOptions(Map<String, String> options)
+    public BoundedReadCompactionStrategyOptions(Map<String, String> options)
     {
         minSSTableSizeBytes = parseLong(options, MIN_SSTABLE_SIZE, DEFAULT_MIN_SSTABLE_SIZE) * 1024 * 1024;
         long targetSSTableSizeInMb = parseLong(options, TARGET_SSTABLE_SIZE, DEFAULT_TARGET_SSTABLE_SIZE);
@@ -85,7 +84,7 @@ public final class GeneralCompactionStrategyOptions
         levelBucketHigh = parseDouble(options, LEVEL_BUCKET_HIGH, DEFAULT_LEVEL_BUCKET_HIGH);
     }
 
-    public GeneralCompactionStrategyOptions()
+    public BoundedReadCompactionStrategyOptions()
     {
         this(Collections.emptyMap());
     }
@@ -191,9 +190,11 @@ public final class GeneralCompactionStrategyOptions
         int minThresholdLevels = parseInt(options, MIN_THRESHOLD_LEVELS, DEFAULT_MIN_THRESHOLD_LEVELS);
         if (minThresholdLevels > maxRead) {
             throw new ConfigurationException(String.format("%s should not be larger than %s, %s > %s." +
-                                                           "Consider increasing %s",
+                                                           "Consider increasing %s or set %s=0 to disable" +
+                                                           "density tiering all together",
                                                            MIN_THRESHOLD_LEVELS, MAX_READ_PER_READ,
-                                                           minThresholdLevels, maxRead, MAX_READ_PER_READ));
+                                                           minThresholdLevels, maxRead, MAX_READ_PER_READ,
+                                                           MIN_THRESHOLD_LEVELS));
         }
 
         int maxLevelAgeSeconds = parseInt(options, MAX_LEVEL_AGE_SECS, DEFAULT_MAX_LEVEL_AGE_SECONDS);

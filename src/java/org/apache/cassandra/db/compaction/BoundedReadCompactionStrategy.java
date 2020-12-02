@@ -51,6 +51,7 @@ import org.apache.cassandra.db.lifecycle.View;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.Component;
+import org.apache.cassandra.io.sstable.SSTable;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.schema.CompactionParams;
 import org.apache.cassandra.utils.Pair;
@@ -214,7 +215,9 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
             // log(#flushes) / log(tier) < 2 => tier > sqrt(#flushes)
             int newTier = (int) Math.max(cfsMin, Math.ceil(Math.sqrt(flushesToTarget)));
             newTier = Math.max(cfsMin, Math.min(maxThreshold - cfsMin, newTier));
-            if (newTier != adjustedMinThreshold && flushesToTarget < (maxThreshold * maxThreshold))
+            logger.trace("Flush pacing observes: newTier={}, flushesToTarget={}, writeIntervalSeconds={}",
+                         newTier, flushesToTarget, writeIntervalSeconds);
+            if (newTier != adjustedMinThreshold && flushesToTarget < ((long) maxThreshold * maxThreshold))
             {
                 logger.debug("BRCS adjusting sparse min_threshold={} due to flushesToTarget={}", newTier, flushesToTarget);
                 adjustedMinThreshold = newTier;
@@ -316,15 +319,12 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
                                                int minThreshold, int maxThreshold,
                                                long now)
     {
+        if (sparseRuns.size() == 0) return Collections.emptyList();
+
         List<SSTableReader> sstablesToCompact = Collections.emptyList();
         List<SortedRun> candidate = Collections.emptyList();
 
-        SortedRun oldestRun = null;
-        for (SortedRun sr: sparseRuns)
-        {
-            if (oldestRun == null) oldestRun = sr;
-            if (sr.maxTimestampMillis < oldestRun.maxTimestampMillis) oldestRun = sr;
-        }
+        SortedRun oldestRun = Collections.min(sparseRuns, Comparator.comparing(sr -> sr.maxTimestampMillis));
         long deadlineMillis = compactionOptions.targetConsolidateIntervalSeconds * 1000;
         boolean deadlineEligible = deadlineMillis > 0 && oldestRun != null &&
                                    // Don't want to just recompact old runs continuously ...
@@ -382,7 +382,7 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
                 }
             }
 
-            if (candidate.size() + flushedSSTables.size() > 1)
+            if (!candidate.isEmpty() && (candidate.size() + flushedSSTables.size() > 1))
             {
                 candidate.sort(Comparator.comparing(sr -> sr.uncompressedSizeInBytes));
                 sstablesToCompact = sortedRunToSSTables(candidate.stream().limit(maxThreshold).collect(Collectors.toList()));
@@ -773,9 +773,9 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
         return sstableDensityPairs;
     }
 
-    private List<SSTableReader> findTombstoneEligibleSSTables(int gcBefore, Set<SSTableReader> candidates)
+    private List<SSTableReader> findTombstoneEligibleSSTables(int gcBefore, Set<SSTableReader> candidates, int maxThreshold)
     {
-        // if there is no sstable to compact in the normal way, try compacting single sstable whose
+        // if there is no sstable to compact in the normal way, try compacting sstables whose
         // droppable tombstone ratio is greater than the threshold.
         List<SSTableReader> sstablesWithTombstones = new ArrayList<>();
         for (SSTableReader sstable : candidates)
@@ -786,7 +786,21 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
         if (sstablesWithTombstones.isEmpty())
             return Collections.emptyList();
 
-        return Collections.singletonList(Collections.max(sstablesWithTombstones, SSTableReader.sizeComparator));
+        // Since we are dealing with sorted runs of small tables, we want to gather up a unit of work larger
+        // than a single SSTable otherwise we'll end up with a lot of single file compactions
+        long targetSize = compactionOptions.targetWorkSizeInBytes;
+        long size;
+        int count = 0;
+
+        // Take the sstables with the most droppable tombstones first
+        sstablesWithTombstones.sort(Comparator.comparing(s -> -1 * s.getEstimatedDroppableTombstoneRatio(gcBefore)));
+        for (SSTableReader sst: sstablesWithTombstones)
+        {
+            size = sst.uncompressedLength();
+            count++;
+            if (size >= targetSize || count >= maxThreshold) break;
+        }
+        return sstablesWithTombstones.subList(0, count);
     }
 
     private static int getLevel(Iterable<SSTableReader> sstables)
@@ -862,7 +876,7 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
         // Handle freshly flushed data first, in order to not do a bunch of unneccesary compaction
         // early on we want to gather up a good amount of data before yielding a sorted run
         Pair<List<SSTableReader>, List<SSTableReader>> filteredFlushes = findNewlyFlushedSSTables(candidatesSet);
-        logger.trace("BRCS choosing candidates: {}", this);
+        logger.trace("{}", this);
 
         int minThreshold = adjustedMinThreshold;
         int maxThreshold = cfs.getMaximumCompactionThreshold();
@@ -923,7 +937,7 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
         }
 
         // If we get here then check if tombstone compaction is available and do that
-        sstablesToCompact = findTombstoneEligibleSSTables(gcBefore, candidatesSet);
+        sstablesToCompact = findTombstoneEligibleSSTables(gcBefore, candidatesSet, maxThreshold);
         if (sstablesToCompact.size() > 1)
         {
             logger.debug("BRCS re-writing to purge tombstones: {}", sstablesToCompact);

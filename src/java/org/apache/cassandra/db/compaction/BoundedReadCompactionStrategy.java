@@ -230,10 +230,10 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
         //
         // With a 8GiB heap with default settings flushes yield ~225 MiB sstables (2GiB * 0.11). With
         // the defaults of target=512MiB, minThresholdLevels=4, and maxRead=10 this will almost always
-        // yield a compaction after ~6 flushes. The only time we expect to hit the first condition is on write
+        // yield a compaction after ~10 flushes. The only time we expect to hit the first condition is on write
         // heavy large clusters that have increased maxReadPerRead or on STCS converting to BRCS
         boolean sizeEligible = (size > compactionOptions.targetSSTableSizeBytes * cfsMin) ||
-                               ((recentlyFlushed.size() + compactionOptions.minThresholdLevels) >= compactionOptions.maxReadPerRead);
+                               (recentlyFlushed.size() >= compactionOptions.maxReadPerRead);
 
         if ((recentlyFlushed.size() >= adjustedMinThreshold && sizeEligible) || recentlyFlushed.size() >= maxThreshold)
             return Pair.create(recentlyFlushed, recentlyFlushed.stream().limit(maxThreshold).collect(Collectors.toList()));
@@ -576,9 +576,7 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
                                          .map(p -> p.left)
                                          .collect(Collectors.toList());
             logger.debug("BRCS hitting {} of {}, compacting to reduce overlap: {}",
-                         BoundedReadCompactionStrategyOptions.MAX_READ_PER_READ,
-                         compactionOptions.maxReadPerRead,
-                         bucket);
+                         BoundedReadCompactionStrategyOptions.MAX_READ_PER_READ, maxRead, bucket);
 
             candidates.add(Pair.create(createCandidate(bucket, maxThreshold),
                                        calculateScore(bucket, runs.size(), hasSpace, compactionOptions.maxReadPerRead)));

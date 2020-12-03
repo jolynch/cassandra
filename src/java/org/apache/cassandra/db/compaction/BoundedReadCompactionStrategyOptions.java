@@ -28,8 +28,8 @@ public final class BoundedReadCompactionStrategyOptions
     protected static final long DEFAULT_WORK_UNIT_MULTIPLE = 16;
     protected static final long DEFAULT_MIN_SSTABLE_SIZE = 50L;
     protected static final long DEFAULT_TARGET_SSTABLE_SIZE = 512L;
-    protected static final long DEFAULT_CONSOLIDATE_INTERVAL_SECONDS    = 60 * 60;     // 1 hour
-    protected static final long DEFAULT_TARGET_REWRITE_INTERVAL_SECONDS = 4 * 60 * 60; // 4 hours
+    protected static final long DEFAULT_CONSOLIDATE_INTERVAL_SECONDS    = 60 * 60;      // 1 hour
+    protected static final long DEFAULT_TARGET_REWRITE_INTERVAL_SECONDS = 60 * 60 * 4;  // 4 hours
     protected static final int DEFAULT_MAX_READ_PER_READ = 10;
     protected static final long DEFAULT_MAX_COUNT = 2000;
 

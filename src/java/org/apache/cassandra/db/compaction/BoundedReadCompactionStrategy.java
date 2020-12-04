@@ -51,7 +51,6 @@ import org.apache.cassandra.db.lifecycle.View;
 import org.apache.cassandra.dht.AbstractBounds;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.Component;
-import org.apache.cassandra.io.sstable.SSTable;
 import org.apache.cassandra.io.sstable.format.SSTableReader;
 import org.apache.cassandra.schema.CompactionParams;
 import org.apache.cassandra.utils.Pair;
@@ -64,7 +63,6 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
     private static final Integer CONSOLIDATION_COMPACTION = -1;
     private static final Integer TOMBSTONE_COMPACTION = -2;
     private static final Double MAJOR_COMPACTION = Double.MAX_VALUE;
-    private static final Integer MAX_SPLITS = 4096;
 
     // Static purely so we don't loose these on options changes, if we loose them on restarts
     // that's ok.
@@ -78,6 +76,7 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
     protected volatile int estimatedRemainingTasks;
     protected long targetSSTableSizeBytes;
     protected int adjustedMinThreshold;
+    protected int maxSplits;
     protected volatile Pair<Integer, SSTableIntervalTree> cachedTree;
     protected volatile Pair<Integer, List<Pair<List<SortedRun>, Double>>> cachedScores;
     protected Comparator<Pair<List<SortedRun>, Double>> scoreComparator = Comparator.<Pair<List<SortedRun>, Double>>
@@ -92,7 +91,7 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
         public final DecoratedKey last;
         public final List<SSTableReader> sstables;
         public final long uncompressedSizeInBytes;
-        public final long sizeOnDiskInBytes;
+        public final long onDiskSizeInBytes;
         public final double keyRangeSize;
         public final long createdAtMillis;
         public final long maxTimestampMillis;
@@ -104,7 +103,7 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
             this.first = first;
             this.last = last;
             this.uncompressedSizeInBytes = uncompressedSize;
-            this.sizeOnDiskInBytes = onDiskSize;
+            this.onDiskSizeInBytes = onDiskSize;
             this.keyRangeSize = first.getToken().size(last.getToken());
             this.createdAtMillis = createdAtMillis;
             this.level = 0;
@@ -135,7 +134,7 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
                 maxTimestamp = Math.max(maxTimestamp, sst.getMaxTimestamp());
             }
             this.uncompressedSizeInBytes = sizeInBytes;
-            this.sizeOnDiskInBytes = onDiskSizeInBytes;
+            this.onDiskSizeInBytes = onDiskSizeInBytes;
             this.keyRangeSize = Math.min(1.0, keyRangeSize);
             this.createdAtMillis = createdAt;
             this.maxTimestampMillis = maxTimestamp;
@@ -165,9 +164,11 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
         this.cachedTree = Pair.create(Collections.emptySet().hashCode(), SSTableIntervalTree.empty());
         this.cachedScores = Pair.create(Collections.emptySet().hashCode(), Collections.emptyList());
 
-        int initialSplit = (int) Math.min(MAX_SPLITS,
+        this.maxSplits = (int) (compactionOptions.targetWorkSizeInBytes / compactionOptions.minSSTableSizeBytes);
+        int initialSplit = (int) Math.min(maxSplits,
                                           compactionOptions.targetWorkSizeInBytes /
                                           compactionOptions.targetSSTableSizeBytes);
+
         targetRangeSplits = Math.max(targetRangeSplits, initialSplit);
     }
 
@@ -175,7 +176,7 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
     public void startup()
     {
         super.startup();
-        // How the user can signal to stop major compactions
+        // Hack for the user to signal to stop generating major compactions
         if (compactionOptions.maxLevelAgeSeconds == 0)
             majorCompactionGoalSetAt = 0;
     }
@@ -195,7 +196,7 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
         long maxTimestamp = Long.MIN_VALUE;
         for (SSTableReader sst: recentlyFlushed)
         {
-            size += sst.uncompressedLength();
+            size += sst.onDiskLength();
             long createdAt = sst.getCreationTimeFor(Component.DATA);
             minTimestamp = Math.min(minTimestamp, createdAt);
             maxTimestamp = Math.max(maxTimestamp, createdAt);
@@ -214,7 +215,7 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
             // to no more than 2 (write amplification of 2). To achieve this adjust min threshold according to:
             // log(#flushes) / log(tier) < 2 => tier > sqrt(#flushes)
             int newTier = (int) Math.max(cfsMin, Math.ceil(Math.sqrt(flushesToTarget)));
-            newTier = Math.max(cfsMin, Math.min(maxThreshold - cfsMin, newTier));
+            newTier = Math.max(cfsMin, Math.min(maxThreshold - cfsMin, Math.min(4 * cfsMin, newTier)));
             logger.trace("Flush pacing observes: newTier={}, flushesToTarget={}, writeIntervalSeconds={}",
                          newTier, flushesToTarget, writeIntervalSeconds);
             if (newTier != adjustedMinThreshold && flushesToTarget < ((long) maxThreshold * maxThreshold))
@@ -255,18 +256,20 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
         List<SortedRun> sparseRuns = new ArrayList<>(adjustedMinThreshold);
         List<SortedRun> denseRuns = new ArrayList<>(runs.size());
 
-        long targetSizeBytes = targetSSTableSizeBytes * targetRangeSplits;
+        long targetSizeBytes = compactionOptions.targetWorkSizeInBytes;
 
         for (Pair<SortedRun, Long> run : runs)
         {
             // Note that the long which came back from groupIntoSortedRunWithSize was the uncompressed size of the run
             // (a good measure of compaction work), but for the sparse runs we want to work towards an on disk size.
             // A run which has 2 GiB spread over 0.1 of the keyRange is as dense as 20GiB over the whole range.
-            double effectiveRunSize = run.left.sizeOnDiskInBytes * (intervalSize / Math.max(0.00001, run.left.keyRangeSize));
+            double effectiveRunSize = run.left.onDiskSizeInBytes * (intervalSize / Math.max(0.00001, run.left.keyRangeSize));
 
             if (effectiveRunSize >= targetSizeBytes) denseRuns.add(run.left);
             else sparseRuns.add(run.left);
         }
+        sparseRuns.sort(Comparator.comparing(sr -> -1 * sr.uncompressedSizeInBytes));
+        denseRuns.sort(Comparator.comparing(sr -> -1 * sr.uncompressedSizeInBytes));
 
         logger.trace("Found {} sparse runs: {}", sparseRuns.size(), sparseRuns);
         logger.trace("Found {} dense runs : {}", denseRuns.size(), denseRuns);
@@ -331,18 +334,26 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
                                    oldestRun.createdAtMillis < (now - deadlineMillis) &&
                                    oldestRun.maxTimestampMillis < (now - deadlineMillis);
         int numSparseRuns = flushedSSTables.size() + sparseRuns.size();
-
+        long size = sparseRuns.stream().mapToLong(sr -> sr.onDiskSizeInBytes).sum();
+        boolean sizeEligible = size > compactionOptions.targetWorkSizeInBytes;
 
         if (numSparseRuns > minThreshold ||
-            (sparseRuns.size() > maxThreshold) ||
+            (sparseRuns.size() > maxThreshold || sizeEligible) ||
             (numSparseRuns > 1 && deadlineEligible))
         {
 
             // If we've got too many small runs or have hit the deadline we need to consolidate them regardless of
-            // the large runs
+            // the dense runs
             if (sparseRuns.size() > maxThreshold)
             {
                 logger.trace("Compacting all sparse runs due to max_threshold={}", maxThreshold);
+                candidate = sparseRuns;
+            }
+            else if (sizeEligible)
+            {
+                logger.debug("Compacting all sparse runs due to hitting {}={}",
+                             BoundedReadCompactionStrategyOptions.TARGET_WORK_UNIT,
+                             compactionOptions.targetWorkSizeInBytes / (1024 * 1024));
                 candidate = sparseRuns;
             }
             else if (deadlineEligible)
@@ -737,7 +748,7 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
         long totalBytes = 0;
         double normalizedBytes = 0;
         for (SortedRun sortedRun : bucket) {
-            totalBytes += sortedRun.sizeOnDiskInBytes;
+            totalBytes += sortedRun.onDiskSizeInBytes;
             normalizedBytes += Math.max(1, sortedRun.uncompressedSizeInBytes * sortedRun.keyRangeSize);
         }
         if (hasSpace.test(totalBytes))
@@ -840,9 +851,9 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
         // monotonically increasing but just to prevent too much movement such that our major compaction
         // work estimates are somewhat consistent
         long datasetSize = liveSet.stream().mapToLong(SSTableReader::uncompressedLength).sum();
-        int targetSplits = (int) Math.min(MAX_SPLITS, Math.max(1, datasetSize / compactionOptions.targetWorkSizeInBytes));
+        int targetSplits = (int) Math.min(maxSplits, Math.max(1, datasetSize / compactionOptions.targetWorkSizeInBytes));
         int nextSplits = 1 << 32 - Integer.numberOfLeadingZeros(targetSplits - 1);
-        if (nextSplits > targetRangeSplits)
+        if (nextSplits > targetRangeSplits || targetRangeSplits > maxSplits)
         {
             logger.debug("BRCS adjusting work splits to {} due to datasetSize={} and targetWorkSize={}",
                          nextSplits,

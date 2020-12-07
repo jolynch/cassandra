@@ -38,9 +38,9 @@ public final class BoundedReadCompactionStrategyOptions
     protected static final double DEFAULT_LEVEL_BUCKET_LOW = 0.75;
     protected static final double DEFAULT_LEVEL_BUCKET_HIGH = 1.25;
 
-    protected static final String TARGET_WORK_UNIT = "target_work_unit_in_mb";
-    protected static final String MIN_SSTABLE_SIZE = "min_sstable_size_in_mb";
-    protected static final String TARGET_SSTABLE_SIZE = "target_sstable_size_in_mb";
+    protected static final String TARGET_WORK_UNIT = "target_work_unit_in_mib";
+    protected static final String MIN_SSTABLE_SIZE = "min_sstable_size_in_mib";
+    protected static final String TARGET_SSTABLE_SIZE = "target_sstable_size_in_mib";
     protected static final String TARGET_CONSOLIDATE_INTERVAL_SECS = "target_consolidate_interval_in_seconds";
     protected static final String TARGET_REWRITE_INTERVAL_SECS = "target_rewrite_interval_in_seconds";
     protected static final String MAX_READ_PER_READ = "max_read_per_read";

@@ -63,6 +63,7 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
     private static final Integer CONSOLIDATION_COMPACTION = -1;
     private static final Integer TOMBSTONE_COMPACTION = -2;
     private static final Double MAJOR_COMPACTION = Double.MAX_VALUE;
+    private static final double EPSILON = 0.00000001 ;
 
     // Static purely so we don't loose these on options changes, if we loose them on restarts
     // that's ok.
@@ -453,14 +454,24 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
     private List<Pair<SortedRun, Long>> groupOverlappingIntoSortedRuns(SSTableIntervalTree tree,
                                                                        AbstractBounds<PartitionPosition> range)
     {
+        return groupOverlappingIntoSortedRuns(tree, range, sst -> false);
+    }
+
+    private List<Pair<SortedRun, Long>> groupOverlappingIntoSortedRuns(SSTableIntervalTree tree,
+                                                                       AbstractBounds<PartitionPosition> range,
+                                                                       Predicate<SSTableReader> excludeFilter)
+    {
         Map<Integer, Set<SSTableReader>> sortedRuns = new HashMap<>();
         Set<SSTableReader> sortedRun;
         for (SSTableReader sstable : View.sstablesInBounds(range.left, range.right, tree))
         {
+            if (excludeFilter.test(sstable)) continue;
             sortedRun = sortedRuns.computeIfAbsent(sstable.getSSTableLevel(), k -> new HashSet<>());
             sortedRun.add(sstable);
         }
 
+        // Note that the interval size here doesn't really matter as long as it's the same for all density
+        // candidates. Unlike when splitting sparse from dense we don't need an exact accounting.
         return groupIntoSortedRunWithSize(sortedRuns, tree.min().getToken().size(tree.max().getToken()));
     }
 
@@ -519,14 +530,25 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
                 }
                 else
                 {
-                    // Now that we've gotten past any kind of major compaction, remove any sparse runs
-                    // from the bucketing calculation to avoid needless write amplification of sparse runs
-                    runs.removeIf(sr -> sparseRunLevels.contains(sr.left.level));
-                    candidates = handleOverlappingSortedRuns(runs, maxThreshold);
-                    if (candidates.size() > 0)
+                    // Look at the smallest ranges that together cover the sorted run range. If we just look
+                    // at the sorted runs we might compact runs that don't actually overlap. For example if you
+                    // have four runs that are disjoint a sparse run might consider those 4 overlapping runs (even
+                    // though reads cannot overlap).
+                    List<AbstractBounds<PartitionPosition>> subRangeBounds = getBounds(sortedRunToSSTables(runs));
+                    List<AbstractBounds<PartitionPosition>> subRanges = findWorkRanges(subRangeBounds, EPSILON);
+                    logger.trace("BRCS found {} sub ranges", subRanges.size());
+                    for (AbstractBounds<PartitionPosition> subRange: subRanges)
                     {
-                        candidateScores.addAll(candidates);
-                        rangeHasWork = true;
+                        // Now that we've gotten past any kind of major compaction, remove any sparse runs
+                        // from the bucketing calculation to avoid needless write amplification of sparse runs
+                        runs = groupOverlappingIntoSortedRuns(tree, subRange,
+                                                              sst -> sparseRunLevels.contains(sst.getSSTableLevel()));
+                        candidates = handleOverlappingSortedRuns(runs, maxThreshold);
+                        if (candidates.size() > 0)
+                        {
+                            candidateScores.addAll(candidates);
+                            rangeHasWork = true;
+                        }
                     }
                 }
             }
@@ -542,7 +564,7 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
     }
 
     private List<Pair<List<SortedRun>, Double>> handleOverlappingSortedRuns(List<Pair<SortedRun, Long>> runs,
-                                                                            int maxThreshold)
+                                                                           int maxThreshold)
     {
         int tierFactor = compactionOptions.minThresholdLevels;
         int maxRead = compactionOptions.maxReadPerRead;
@@ -616,9 +638,9 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
                 continue;
             }
 
-            long gcGraceMillis = cfs.gcBefore((int) now / 1000) * 1000;
+            long gcGraceMillis = cfs.gcBefore((int) (now / 1000L)) * 1000L;
             if (run.createdAtMillis < gcGraceMillis &&
-                run.createdAtMillis < (now - (compactionOptions.maxLevelAgeSeconds * 1000)))
+                run.createdAtMillis < (now - (compactionOptions.maxLevelAgeSeconds * 1000L)))
             {
                 bucket.add(run);
                 logger.debug("Found old run {}. Mixing with newer data due to {} of {}. If this is undesirable " +
@@ -680,8 +702,8 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
                 pendingMajors.set(0);
             }
 
-            logger.debug("BRCS found {} candidate runs, working on sorted_runs={},score={}",
-                         candidateScores.size(),
+            logger.debug("BRCS found {} ranges with candidate compactions, working on sorted_runs={},score={}",
+                         estimatedRemainingTasks,
                          bestCandidate,
                          bestScore);
 
@@ -705,13 +727,18 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
                      .collect(Collectors.toList());
     }
 
-    static List<SSTableReader> sortedRunToSSTables(List<SortedRun> bucket)
+    static List<SSTableReader> sortedRunToSSTables(Collection<SortedRun> bucket)
     {
         return bucket.stream()
                      .map(sr -> sr.sstables)
                      .flatMap(Collection::stream)
                      .distinct()
                      .collect(Collectors.toList());
+    }
+
+    static List<SSTableReader> sortedRunToSSTables(List<Pair<SortedRun, Long>> bucket)
+    {
+        return sortedRunToSSTables(bucket.stream().map(p -> p.left).collect(Collectors.toList()));
     }
 
     /**
@@ -775,7 +802,7 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
 
             // How large this run would be if applied to the whole range
             long normalizedBytes = Math.round(sortedRun.uncompressedSizeInBytes *
-                                              (intervalSize / Math.max(0.000001, sortedRun.keyRangeSize)));
+                                              (intervalSize / Math.max(EPSILON, sortedRun.keyRangeSize)));
             normalizedBytes = Math.max(1, normalizedBytes);
             sstableDensityPairs.add(Pair.create(sortedRun, normalizedBytes));
         }
@@ -836,9 +863,9 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
             final double targetSSTableSize = Math.max(targetSSTableSizeBytes,
                                                       totalSize / (compactionOptions.maxSSTableCount / 2));
             // So we don't have oddly sized tables, just always change in increments of 256 MiB
-            final long next256 = 256 * 1000 * 1000;
+            final long next256 = 256 * 1024 * 1024;
             final long nextSize = ((long) (Math.ceil(targetSSTableSize / next256))) * (next256);
-            if (nextSize > this.targetSSTableSizeBytes) {
+            if (nextSize != this.targetSSTableSizeBytes) {
                 logger.debug("BRCS adjusting target sstable size to {}MiB due to observing {}MiB dataset over {} SSTables",
                              nextSize / 1024 / 1024,
                              totalSize / 1024 / 1024,
@@ -863,7 +890,7 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
         }
     }
 
-    private static List<AbstractBounds<PartitionPosition>> getBounds(Set<SSTableReader> sstables)
+    private static List<AbstractBounds<PartitionPosition>> getBounds(Collection<SSTableReader> sstables)
     {
         List<SSTableReader> sortedByFirst = Lists.newArrayList(sstables);
         sortedByFirst.sort(Comparator.comparing(s -> s.first));
@@ -887,8 +914,8 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
         Pair<List<SSTableReader>, List<SSTableReader>> filteredFlushes = findNewlyFlushedSSTables(candidatesSet);
         logger.trace("{}", this);
 
-        int minThreshold = adjustedMinThreshold;
-        int maxThreshold = cfs.getMaximumCompactionThreshold();
+        final int minThreshold = adjustedMinThreshold;
+        final int maxThreshold = cfs.getMaximumCompactionThreshold();
         final long now = System.currentTimeMillis();
         List<SSTableReader> flushedSSTables = filteredFlushes.left;
         List<SSTableReader> sstablesToCompact = filteredFlushes.right;

@@ -25,12 +25,13 @@ import org.apache.cassandra.exceptions.ConfigurationException;
 
 public final class BoundedReadCompactionStrategyOptions
 {
-    protected static final long DEFAULT_WORK_UNIT_MULTIPLE = 16;
-    protected static final long DEFAULT_MIN_SSTABLE_SIZE = 64L;
-    protected static final long DEFAULT_TARGET_SSTABLE_SIZE = 512L;
-    protected static final long DEFAULT_CONSOLIDATE_INTERVAL_SECONDS    = 60 * 60;      // 1 hour
-    protected static final long DEFAULT_TARGET_REWRITE_INTERVAL_SECONDS = 60 * 60 * 4;  // 4 hours
-    protected static final int DEFAULT_MAX_READ_PER_READ = 10;
+    protected static final long DEFAULT_MIN_SSTABLE_SIZE    = 64L;
+    protected static final long DEFAULT_TARGET_SSTABLE_SIZE = 1024L;                     // 1 GiB
+    protected static final long DEFAULT_CONSOLIDATE_SIZE    = 8192L;                     // 8 GiB
+    protected static final long DEFAULT_CONSOLIDATE_INTERVAL_SECONDS    = 60 * 60;       // 1 hour
+    protected static final long DEFAULT_TARGET_REWRITE_INTERVAL_SECONDS = 60 * 60 * 24;  // 24 hours
+    protected static final double DEFAULT_MAX_WORK_UNIT = 0.1;                           // 10%
+    protected static final int DEFAULT_MAX_READ_PER_READ = 8;
     protected static final long DEFAULT_MAX_COUNT = 2000;
 
     protected static final int DEFAULT_MIN_THRESHOLD_LEVELS = 4;
@@ -38,11 +39,12 @@ public final class BoundedReadCompactionStrategyOptions
     protected static final double DEFAULT_LEVEL_BUCKET_LOW = 0.75;
     protected static final double DEFAULT_LEVEL_BUCKET_HIGH = 1.25;
 
-    protected static final String TARGET_WORK_UNIT = "target_work_unit_in_mib";
     protected static final String MIN_SSTABLE_SIZE = "min_sstable_size_in_mib";
     protected static final String TARGET_SSTABLE_SIZE = "target_sstable_size_in_mib";
     protected static final String TARGET_CONSOLIDATE_INTERVAL_SECS = "target_consolidate_interval_in_seconds";
+    protected static final String TARGET_CONSOLIDATE_SIZE = "target_consolidate_size_in_mib";
     protected static final String TARGET_REWRITE_INTERVAL_SECS = "target_rewrite_interval_in_seconds";
+    protected static final String MAX_WORK_UNIT = "max_work_unit_in_percent";
     protected static final String MAX_READ_PER_READ = "max_read_per_read";
     protected static final String MAX_SSTABLE_COUNT = "max_sstable_count";
 
@@ -52,10 +54,11 @@ public final class BoundedReadCompactionStrategyOptions
     protected static final String LEVEL_BUCKET_HIGH = "level_bucket_high";
 
     protected final long minSSTableSizeBytes;
-    protected final long targetWorkSizeInBytes;
     protected final long targetSSTableSizeBytes;
+    protected final long targetConsolidateSizeInBytes;
     protected final long targetConsolidateIntervalSeconds;
     protected final long targetRewriteIntervalSeconds;
+    protected final double maxWorkUnitPercent;
     protected final long maxSSTableCount;
     protected final int maxReadPerRead;
 
@@ -67,15 +70,11 @@ public final class BoundedReadCompactionStrategyOptions
     public BoundedReadCompactionStrategyOptions(Map<String, String> options)
     {
         minSSTableSizeBytes = parseLong(options, MIN_SSTABLE_SIZE, DEFAULT_MIN_SSTABLE_SIZE) * 1024 * 1024;
-        long targetSSTableSizeInMb = parseLong(options, TARGET_SSTABLE_SIZE, DEFAULT_TARGET_SSTABLE_SIZE);
-        targetSSTableSizeBytes =  targetSSTableSizeInMb * 1024L * 1024L;
-        // Default to some relatively large multiple of the SSTable size,
-        targetWorkSizeInBytes = parseLong(options,
-                                          TARGET_WORK_UNIT,
-                                          targetSSTableSizeInMb * DEFAULT_WORK_UNIT_MULTIPLE) * 1024L * 1024L;
-
+        targetSSTableSizeBytes =  parseLong(options, TARGET_SSTABLE_SIZE, DEFAULT_TARGET_SSTABLE_SIZE) * 1024L * 1024L;
+        targetConsolidateSizeInBytes = parseLong(options, TARGET_CONSOLIDATE_SIZE, DEFAULT_CONSOLIDATE_SIZE) * 1024L * 1024L;
         targetConsolidateIntervalSeconds = parseLong(options, TARGET_CONSOLIDATE_INTERVAL_SECS, DEFAULT_CONSOLIDATE_INTERVAL_SECONDS);
         targetRewriteIntervalSeconds = parseLong(options, TARGET_REWRITE_INTERVAL_SECS, DEFAULT_TARGET_REWRITE_INTERVAL_SECONDS);
+        maxWorkUnitPercent = parseDouble(options, MAX_WORK_UNIT, DEFAULT_MAX_WORK_UNIT);
         maxSSTableCount = parseLong(options, MAX_SSTABLE_COUNT, DEFAULT_MAX_COUNT);
         maxReadPerRead = parseInt(options, MAX_READ_PER_READ, DEFAULT_MAX_READ_PER_READ);
         minThresholdLevels = parseInt(options, MIN_THRESHOLD_LEVELS, DEFAULT_MIN_THRESHOLD_LEVELS);
@@ -150,35 +149,41 @@ public final class BoundedReadCompactionStrategyOptions
                                                            minSSTableSizeBytes, minSSTableSizeBytes, TARGET_SSTABLE_SIZE));
         }
 
-        long targetWorkUnit = parseLong(options, TARGET_WORK_UNIT, DEFAULT_WORK_UNIT_MULTIPLE * targetSSTableSizeMb) * 1024 * 1024;
-        if (targetWorkUnit <= 0)
+        long targetConsolidateSize = parseLong(options, TARGET_CONSOLIDATE_SIZE, DEFAULT_CONSOLIDATE_SIZE) * 1024 * 1024;
+        if (targetConsolidateSize <= 0)
         {
-            throw new ConfigurationException(String.format("%s must be positive: %d", TARGET_WORK_UNIT, targetWorkUnit));
+            throw new ConfigurationException(String.format("%s must be positive: %d", TARGET_CONSOLIDATE_SIZE, targetConsolidateSize));
         }
-        if (targetSSTableSize > targetWorkUnit)
+        if (targetSSTableSize > targetConsolidateSize)
         {
             throw new ConfigurationException(String.format("%s should not be larger than %s, %s > %s." +
                                                            "Consider increasing %s",
-                                                           TARGET_SSTABLE_SIZE, TARGET_WORK_UNIT,
-                                                           targetSSTableSize, targetWorkUnit, TARGET_WORK_UNIT));
+                                                           TARGET_SSTABLE_SIZE, TARGET_CONSOLIDATE_SIZE,
+                                                           targetSSTableSize, targetConsolidateSize, TARGET_CONSOLIDATE_SIZE));
         }
 
         long targetConsolidate = parseLong(options, TARGET_CONSOLIDATE_INTERVAL_SECS, DEFAULT_CONSOLIDATE_INTERVAL_SECONDS);
         if (targetConsolidate < 0)
         {
-            throw new ConfigurationException(String.format("%s must be non negative: %d", TARGET_CONSOLIDATE_INTERVAL_SECS, DEFAULT_CONSOLIDATE_INTERVAL_SECONDS));
+            throw new ConfigurationException(String.format("%s must be non negative: %d", TARGET_CONSOLIDATE_INTERVAL_SECS, targetConsolidate));
         }
 
         long targetRewrite = parseLong(options, TARGET_REWRITE_INTERVAL_SECS, DEFAULT_TARGET_REWRITE_INTERVAL_SECONDS);
         if (targetRewrite < 0)
         {
-            throw new ConfigurationException(String.format("%s must be non negative: %d", TARGET_REWRITE_INTERVAL_SECS, DEFAULT_TARGET_REWRITE_INTERVAL_SECONDS));
+            throw new ConfigurationException(String.format("%s must be non negative: %d", TARGET_REWRITE_INTERVAL_SECS, targetRewrite));
+        }
+
+        double maxWorkUnit = parseDouble(options, MAX_WORK_UNIT, DEFAULT_MAX_WORK_UNIT);
+        if (maxWorkUnit >= 1 || maxWorkUnit < 0.01)
+        {
+            throw new ConfigurationException(String.format("%s must be between [0.01, 1.0): %f", MAX_WORK_UNIT, maxWorkUnit));
         }
 
         long maxCount = parseLong(options, MAX_SSTABLE_COUNT, DEFAULT_MAX_COUNT);
         if (maxCount < 50)
         {
-            throw new ConfigurationException(String.format("%s must be larger than 10: %d", MAX_SSTABLE_COUNT, maxCount));
+            throw new ConfigurationException(String.format("%s must be larger than 50: %d", MAX_SSTABLE_COUNT, maxCount));
         }
 
         int maxRead = parseInt(options, MAX_READ_PER_READ, DEFAULT_MAX_READ_PER_READ);
@@ -207,10 +212,11 @@ public final class BoundedReadCompactionStrategyOptions
 
         uncheckedOptions.remove(MIN_THRESHOLD_LEVELS);
         uncheckedOptions.remove(MIN_SSTABLE_SIZE);
-        uncheckedOptions.remove(TARGET_WORK_UNIT);
         uncheckedOptions.remove(TARGET_SSTABLE_SIZE);
+        uncheckedOptions.remove(TARGET_CONSOLIDATE_SIZE);
         uncheckedOptions.remove(TARGET_CONSOLIDATE_INTERVAL_SECS);
         uncheckedOptions.remove(TARGET_REWRITE_INTERVAL_SECS);
+        uncheckedOptions.remove(MAX_WORK_UNIT);
         uncheckedOptions.remove(MAX_SSTABLE_COUNT);
         uncheckedOptions.remove(MAX_READ_PER_READ);
         uncheckedOptions.remove(MAX_LEVEL_AGE_SECS);

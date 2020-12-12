@@ -30,7 +30,7 @@ public final class BoundedReadCompactionStrategyOptions
     protected static final long DEFAULT_CONSOLIDATE_SIZE    = 8192L;                     // 8 GiB
     protected static final long DEFAULT_CONSOLIDATE_INTERVAL_SECONDS    = 60 * 60;       // 1 hour
     protected static final long DEFAULT_TARGET_REWRITE_INTERVAL_SECONDS = 60 * 60 * 24;  // 24 hours
-    protected static final double DEFAULT_MAX_WORK_UNIT = 0.1;                           // 10%
+    protected static final double DEFAULT_MAX_WORK_UNIT = 0.125;                         // 12.5%
     protected static final int DEFAULT_MAX_READ_PER_READ = 8;
     protected static final long DEFAULT_MAX_COUNT = 2000;
 

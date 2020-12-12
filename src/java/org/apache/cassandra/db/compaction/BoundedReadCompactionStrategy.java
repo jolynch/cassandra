@@ -482,17 +482,17 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
         Set<SSTableReader> allSSTables = Sets.union(new HashSet<>(sortedRunToSSTables(sparseRuns)), overlapCandidates);
         if (allSSTables.isEmpty()) return Collections.emptyList();
 
-        int maxThreshold = cfs.getMaximumCompactionThreshold();
 
         // Best effort caching of scores ... if we end up doing it twice it is not a big deal.
         // we're just trying to avoid re-evaluating overlaps all the time if the sstables haven't changed
         if (allSSTables.hashCode() == cachedScores.left)
             return chooseCandidate(nowMillis, cachedScores.right);
 
-        SSTableIntervalTree tree = cachedTree.right;
+        final int maxThreshold = cfs.getMaximumCompactionThreshold();
+        final SSTableIntervalTree tree = cachedTree.right;
+        final double intervalSize = tree.min().getToken().size(tree.max().getToken());
 
         // The split ranges just look at the overall covered range
-        double intervalSize = tree.min().getToken().size(tree.max().getToken());
         logger.trace("BRCS operating on interval of size {}", intervalSize);
         List<AbstractBounds<PartitionPosition>> workRanges = findWorkRanges(bounds,intervalSize / targetRangeSplits);
 
@@ -502,7 +502,7 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
         int rangesWithWork = 0;
         for (AbstractBounds<PartitionPosition> workingRange: workRanges)
         {
-            // We first cut the whole range up into pieces about the size of our target compaction size
+            // We first cut the whole range up into pieces about the size of our max work unit
             // This is aimed to reduce the impact of full range compactions and allow us to work on parts of
             // dense runs in parallel.
             List<Pair<SortedRun, Long>> workRuns = groupOverlappingIntoSortedRuns(tree, workingRange);
@@ -532,7 +532,7 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
                     // at the sorted runs we might compact runs that don't actually overlap. For example if you
                     // have four runs that are disjoint a sparse run might consider those 4 overlapping runs (even
                     // though reads cannot overlap).
-                    List<AbstractBounds<PartitionPosition>> subRangeBounds = getBounds(sortedRunToSSTables(runs));
+                    List<AbstractBounds<PartitionPosition>> subRangeBounds = getSortedBounds(sortedRunToSSTables(runs));
                     List<AbstractBounds<PartitionPosition>> subRanges = findWorkRanges(subRangeBounds, EPSILON);
                     for (AbstractBounds<PartitionPosition> subRange: subRanges)
                     {
@@ -540,7 +540,7 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
                         // from the bucketing calculation to avoid needless write amplification of sparse runs
                         runs = groupOverlappingIntoSortedRuns(tree, subRange,
                                                               sst -> sparseRunLevels.contains(sst.getSSTableLevel()));
-                        candidates = handleOverlappingSortedRuns(runs, maxThreshold, nowMillis);
+                        candidates = handleOverlappingSortedRuns(runs, maxThreshold, tree, nowMillis);
                         if (candidates.size() > 0)
                         {
                             candidateScores.addAll(candidates);
@@ -562,60 +562,72 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
 
     private List<Pair<List<SortedRun>, Double>> handleOverlappingSortedRuns(List<Pair<SortedRun, Long>> runs,
                                                                            int maxThreshold,
+                                                                           SSTableIntervalTree tree,
                                                                            long nowMillis)
     {
-        int tierFactor = compactionOptions.minThresholdLevels;
+        int minThresholdLevels = compactionOptions.minThresholdLevels;
         int maxRead = compactionOptions.maxReadPerRead;
 
         // If we don't have enough sorted runs to even hit the min threshold skip bucketing
-        if (runs.size() < tierFactor && runs.size() < maxRead)
+        if (runs.size() < minThresholdLevels && runs.size() < maxRead)
             return Collections.emptyList();
 
         List<Pair<List<SortedRun>, Double>> candidates = new ArrayList<>();
 
-        List<List<SortedRun>> buckets = SizeTieredCompactionStrategy.getBuckets(runs,
-                                                                                compactionOptions.levelBucketHigh,
-                                                                                compactionOptions.levelBucketLow,
-                                                                                0);
-
-        // We want buckets which reduce overlap but don't run us out of space
         Predicate<Long> hasSpace = value -> cfs.getDirectories().hasAvailableDiskSpace(1, value);
-
-        for (List<SortedRun> bucket : buckets)
+        if (minThresholdLevels >= 2)
         {
-            if (tierFactor < 2 || bucket.size() < tierFactor)
-                continue;
+            List<List<SortedRun>> buckets = SizeTieredCompactionStrategy.getBuckets(runs,
+                                                                                    compactionOptions.levelBucketHigh,
+                                                                                    compactionOptions.levelBucketLow,
+                                                                                    0);
 
-            candidates.add(Pair.create(createCandidate(bucket, maxThreshold),
-                                       calculateScore(bucket, runs.size(), hasSpace, compactionOptions.maxReadPerRead)));
+            for (List<SortedRun> bucket : buckets)
+            {
+                if (bucket.size() < minThresholdLevels) continue;
+
+                candidates.add(Pair.create(createCandidate(bucket, maxThreshold),
+                                           calculateScore(bucket, runs.size(), hasSpace, compactionOptions.maxReadPerRead)));
+            }
         }
 
         // Edge case where we can't find any density candidates but we're still over
         // maxReadPerRead so just find minThresholdLevels youngest runs and compact them
         if (candidates.size() == 0 && runs.size() > maxRead)
         {
-            // Essentially pick "young" data to compact. This allows time series use cases and for very large
-            // datasets will generally correlate with smaller less dense runs.
-            runs.sort(Comparator.comparing(r -> r.left.maxTimestampMillis));
-            Collections.reverse(runs);
             // If minThresholdLevels is disabled via setting to 0 or 1, we want 2
             // If minThresholdLevels is large (larger than maxThreshold), we want maxThreshold
-            int min = Math.max(2, Math.min(maxThreshold, tierFactor));
-            List<SortedRun> bucket = runs.subList(0, Math.min(runs.size(), min)).stream()
-                                         .map(p -> p.left)
-                                         .collect(Collectors.toList());
+            final int toCompact = Math.max(2, Math.min(maxThreshold, minThresholdLevels));
             // Presuming new data is coming out of consolidations, wait for at least that time before
-            // compacting young runs again
-            final long rewriteMillis = bucket.size() * compactionOptions.targetConsolidateIntervalSeconds * 1000;
-            bucket.removeIf(sr -> sr.createdAtMillis > (nowMillis - rewriteMillis));
+            // compacting young runs again. This might lead us to picking older runs but hopefully ones that are
+            // close together in time
+            final long rewriteMillis = toCompact * compactionOptions.targetConsolidateIntervalSeconds * 1000;
 
-            if (bucket.size() < 1) return candidates;
+            // Pick "young" data to compact. This allows time series use cases and for very large
+            // datasets will generally correlate with smaller less dense runs.
+            runs.sort(Comparator.comparing(r -> r.left.maxTimestampMillis));
+            runs.removeIf(sr -> sr.left.createdAtMillis > (nowMillis - rewriteMillis));
+            Collections.reverse(runs);
 
+            if (runs.size() < 2) return candidates;
+
+            Set<Integer> targetRuns = new HashSet<>();
+            PartitionPosition min = runs.get(0).left.first;
+            PartitionPosition max = runs.get(0).left.last;
+            for (Pair<SortedRun, Long> run: runs.subList(0, Math.min(runs.size(), toCompact)))
+            {
+                targetRuns.add(run.left.level);
+                if (run.left.first.compareTo(min) < 0) min = run.left.first;
+                if (run.left.last.compareTo(max) > 0) max = run.left.last;
+            }
+            AbstractBounds<PartitionPosition> maxRange = AbstractBounds.bounds(min, true, max, true);
+
+            List<SortedRun> fullOverlap = findAllOverlapping(maxRange, tree, sst -> !targetRuns.contains(sst.getSSTableLevel()));
             logger.trace("BRCS hitting {} of {}, compacting to reduce overlap: {}",
-                         BoundedReadCompactionStrategyOptions.MAX_READ_PER_READ, maxRead, bucket);
+                         BoundedReadCompactionStrategyOptions.MAX_READ_PER_READ, maxRead, fullOverlap);
 
-            candidates.add(Pair.create(createCandidate(bucket, maxThreshold),
-                                       calculateScore(bucket, runs.size(), hasSpace, compactionOptions.maxReadPerRead)));
+            candidates.add(Pair.create(createCandidate(fullOverlap, maxThreshold),
+                                       calculateScore(fullOverlap, runs.size(), hasSpace, compactionOptions.maxReadPerRead)));
         }
         return candidates;
     }
@@ -662,25 +674,33 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
             for (SortedRun range: bucket)
             {
                 AbstractBounds<PartitionPosition> runRange = AbstractBounds.bounds(range.first, true, range.last, true);
-                List<Pair<SortedRun, Long>> overlapping = groupOverlappingIntoSortedRuns(tree, runRange);
-
-                // We may overlap with a low level sstable that in turn overlaps with higher levels
-                // outside this range. In order to make sure all overlapping data compacts we re-query
-                PartitionPosition min = overlapping.get(0).left.first;
-                PartitionPosition max = overlapping.get(0).left.last;
-                for (Pair<SortedRun, Long> overlap: overlapping)
-                {
-                    if (overlap.left.first.compareTo(min) < 0) min = overlap.left.first;
-                    if (overlap.left.last.compareTo(max) > 0) max = overlap.left.first;
-                }
-
-                runRange = AbstractBounds.bounds(min, true, max, true);
-                overlapping = groupOverlappingIntoSortedRuns(tree, runRange);
-                candidates.add(Pair.create(overlapping.stream().map(s -> s.left).collect(Collectors.toList()),
-                                           MAJOR_COMPACTION));
+                List<SortedRun> overlapping = findAllOverlapping(runRange, tree, sst -> false);
+                candidates.add(Pair.create(overlapping, MAJOR_COMPACTION));
             }
         }
         return candidates;
+    }
+
+    private List<SortedRun> findAllOverlapping(AbstractBounds<PartitionPosition> range,
+                                               SSTableIntervalTree tree,
+                                               Predicate<SSTableReader> excludeFilter)
+    {
+        List<Pair<SortedRun, Long>> overlapping = groupOverlappingIntoSortedRuns(tree, range, excludeFilter);
+
+        // We may overlap with a low level sstable that in turn overlaps with higher levels
+        // outside this range. In order to make sure all overlapping data compacts we re-query
+        PartitionPosition min = overlapping.get(0).left.first;
+        PartitionPosition max = overlapping.get(0).left.last;
+        for (Pair<SortedRun, Long> overlap: overlapping)
+        {
+            if (overlap.left.first.compareTo(min) < 0) min = overlap.left.first;
+            if (overlap.left.last.compareTo(max) > 0) max = overlap.left.last;
+        }
+
+        AbstractBounds<PartitionPosition> maxRange = AbstractBounds.bounds(min, true, max, true);
+        return groupOverlappingIntoSortedRuns(tree, maxRange, excludeFilter).stream()
+                                                                            .map(sr -> sr.left)
+                                                                            .collect(Collectors.toList());
     }
 
     private List<SSTableReader> chooseCandidate(long now, List<Pair<List<SortedRun>, Double>> candidateScores)
@@ -878,7 +898,7 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
         }
     }
 
-    private static List<AbstractBounds<PartitionPosition>> getBounds(Collection<SSTableReader> sstables)
+    private static List<AbstractBounds<PartitionPosition>> getSortedBounds(Collection<SSTableReader> sstables)
     {
         List<SSTableReader> sortedByFirst = Lists.newArrayList(sstables);
         sortedByFirst.sort(Comparator.comparing(s -> s.first));
@@ -921,7 +941,7 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
             cachedTree = Pair.create(candidatesSet.hashCode(), SSTableIntervalTree.build(candidatesSet));
         }
 
-        List<AbstractBounds<PartitionPosition>> bounds = getBounds(candidatesSet);
+        List<AbstractBounds<PartitionPosition>> bounds = getSortedBounds(candidatesSet);
         double intervalSize = calculateIntervalSize(bounds);
         logger.trace("BRCS interval size: {}", intervalSize);
 
@@ -1070,7 +1090,7 @@ public class BoundedReadCompactionStrategy extends AbstractCompactionStrategy
                                                                                             sstables::contains)));
 
             Pair<List<SSTableReader>, List<SSTableReader>> filteredFlushes = findNewlyFlushedSSTables(candidatesSet);
-            double intervalSize = calculateIntervalSize(getBounds(candidatesSet));
+            double intervalSize = calculateIntervalSize(getSortedBounds(candidatesSet));
             Pair<List<SortedRun>, Set<SSTableReader>> filteredRuns = filterSparseSortedRuns(candidatesSet, intervalSize);
 
             // Immediately yield all flush products and sparse sstables. We need to get new data into the levels ASAP
